@@ -191,19 +191,20 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
-    PORT = int(os.environ.get("PORT", 8443))
-    if not PROYECTO_URL:
-        raise RuntimeError("Debes definir la variable RAILWAY_STATIC_URL con la URL pública de Railway")
+  if __name__ == "__main__":
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TELEGRAM_TOKEN,
-        webhook_url=f"{PROYECTO_URL}/{TELEGRAM_TOKEN}"
-    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("imagen", comando_imagen))
+    app.add_handler(CommandHandler("video", comando_video))
+    app.add_handler(CallbackQueryHandler(botones))
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
+
+    app.run_polling(drop_pending_updates=True)
       
    
 
    
+
 
 
