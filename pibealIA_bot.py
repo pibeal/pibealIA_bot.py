@@ -191,20 +191,24 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
-  if __name__ == "__main__":
+if __name__ == "__main__":
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("imagen", comando_imagen))
     app.add_handler(CommandHandler("video", comando_video))
+
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
+    print("BOT INICIADO CORRECTAMENTE")
+
     app.run_polling(drop_pending_updates=True)
-      
    
 
    
+
 
 
 
