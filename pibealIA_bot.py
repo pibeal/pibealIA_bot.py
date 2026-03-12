@@ -11,11 +11,11 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Para Whisper STT
-# Opcional: GROQ_API_KEY, HF_TOKEN, NEWSAPI_KEY
+HF_TOKEN = os.getenv("HF_TOKEN")  # Para IA Hugging Face (opcional)
 
+# Memoria simple por usuario
 memoria_ia = {}
 elecciones_imagen = {}
-elecciones_video = {}
 
 # =========================
 # FUNCIONES IA
@@ -23,10 +23,23 @@ elecciones_video = {}
 def responder_ia(user_id, mensaje):
     if user_id not in memoria_ia:
         memoria_ia[user_id] = []
+
     memoria_ia[user_id].append({"role":"user","content":mensaje})
-    respuesta = f"IA responde a: {mensaje}"
-    memoria_ia[user_id].append({"role":"assistant","content":respuesta})
-    return respuesta
+
+    if HF_TOKEN:
+        url = "https://api-inference.huggingface.co/models/gpt2"
+        headers = {"Authorization": f"Bearer {HF_TOKEN}"}
+        data = {"inputs": mensaje}
+        r = requests.post(url, headers=headers, json=data)
+        if r.status_code == 200:
+            texto = r.json()[0]["generated_text"]
+        else:
+            texto = f"Error HF: {r.status_code}"
+    else:
+        texto = f"IA responde: {mensaje}"  # fallback simple
+
+    memoria_ia[user_id].append({"role":"assistant","content":texto})
+    return texto
 
 # =========================
 # STT con Whisper
@@ -53,15 +66,13 @@ def generar_voz(texto):
 # =========================
 # POLLINATIONS
 # =========================
-def generar_imagen_pollinations(prompt, estilo=None):
-    if estilo:
-        prompt = f"{prompt}, estilo {estilo}"
-    return f"https://image.pollinations.ai/prompt/{prompt}"
+def generar_imagen_pollinations(prompt):
+    return f"https://image.pollinations.ai/prompt/{prompt.replace(' ','%20')}"
 
-def generar_varias_imagenes(prompt, estilo=None, cantidad=5):
+def generar_varias_imagenes(prompt, cantidad=3):
     urls = []
     for i in range(cantidad):
-        urls.append(generar_imagen_pollinations(f"{prompt} variante {i+1}", estilo))
+        urls.append(generar_imagen_pollinations(f"{prompt} variante {i+1}"))
     return urls
 
 def generar_video_pollinations(urls, fps=3):
@@ -75,9 +86,9 @@ def generar_video_pollinations(urls, fps=3):
                 f.write(r.content)
             archivos.append(nombre)
     if archivos:
-        video_path = os.path.join(temp_dir, "video.mp4")
+        video_path = os.path.join(temp_dir, "video.gif")
         frames = [imageio.imread(a) for a in archivos]
-        imageio.mimsave(video_path, frames, fps=fps, codec="libx264")
+        imageio.mimsave(video_path, frames, duration=1/fps)
         return video_path
     return None
 
@@ -88,54 +99,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
         "🤖 Bot IA + Voz + Pollinations DEFINITIVO\n\n"
         "Escribe texto o envía tu voz.\n"
-        "Comandos opcionales:\n"
-        "/imagen <descripción> | <estilo opcional>\n"
-        "/logo <descripción> | <estilo opcional>\n"
+        "Opciones de imagen/video:\n"
+        "/imagen <descripción>\n"
         "/video <prompt1>|<prompt2>|..."
     )
     await update.message.reply_text(mensaje)
 
-async def generar_imagen(update: Update, prompt, estilo=None):
-    urls = generar_varias_imagenes(prompt, estilo, cantidad=5)
-    elecciones_imagen[update.message.from_user.id] = urls
-    botones = [[InlineKeyboardButton(f"Opción {i+1}", callback_data=f"seleccion|{i}")] for i in range(len(urls))]
-    markup = InlineKeyboardMarkup(botones)
-    await update.message.reply_text("Selecciona la imagen que más te guste:", reply_markup=markup)
-
-async def imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Escribe la descripción")
-        return
-    texto = " ".join(context.args)
-    partes = texto.split("|")
-    prompt = partes[0].strip()
-    estilo = partes[1].strip() if len(partes) > 1 else None
-    await generar_imagen(update, prompt, estilo)
-
-async def logo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Escribe la descripción")
-        return
-    texto = " ".join(context.args)
-    partes = texto.split("|")
-    prompt = partes[0].strip()
-    estilo = partes[1].strip() if len(partes) > 1 else None
-    await generar_imagen(update, prompt, estilo)
-
-async def video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Escribe al menos un prompt")
-        return
-    prompts = " ".join(context.args).split("|")
-    urls = []
-    for p in prompts:
-        urls.extend(generar_varias_imagenes(p.strip(), cantidad=2))
-    archivo = generar_video_pollinations(urls, fps=3)
-    if archivo:
-        await update.message.reply_document(document=open(archivo, "rb"))
-    else:
-        await update.message.reply_text("❌ No se pudieron generar las imágenes para el video.")
-
+# Manejo de selección de imagen
 async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -156,12 +126,41 @@ async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_photo(photo=open(tmp.name,"rb"))
         await query.edit_message_text("✅ Imagen seleccionada")
 
-# =========================
-# MENSAJES NORMALES / AUDIO
-# =========================
+# Generar imágenes Pollinations
+async def generar_imagen(update: Update, prompt):
+    urls = generar_varias_imagenes(prompt, cantidad=3)
+    elecciones_imagen[update.message.from_user.id] = urls
+    botones_markup = [[InlineKeyboardButton(f"Opción {i+1}", callback_data=f"seleccion|{i}")] for i in range(len(urls))]
+    markup = InlineKeyboardMarkup(botones_markup)
+    await update.message.reply_text("Selecciona la imagen que más te guste:", reply_markup=markup)
+
+async def comando_imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Escribe la descripción")
+        return
+    prompt = " ".join(context.args)
+    await generar_imagen(update, prompt)
+
+# Generar video tipo GIF
+async def comando_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("❌ Escribe al menos un prompt")
+        return
+    prompts = " ".join(context.args).split("|")
+    urls = []
+    for p in prompts:
+        urls.extend(generar_varias_imagenes(p.strip(), cantidad=2))
+    archivo = generar_video_pollinations(urls, fps=3)
+    if archivo:
+        await update.message.reply_document(document=open(archivo,"rb"))
+    else:
+        await update.message.reply_text("❌ No se pudieron generar las imágenes para el video.")
+
+# Manejo de mensajes normales y audio
 async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-    # Audio
+
+    # --- Audio ---
     if update.message.voice:
         file_id = update.message.voice.file_id
         audio_file = await context.bot.get_file(file_id)
@@ -171,18 +170,17 @@ async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not texto:
             await update.message.reply_text("❌ No se pudo reconocer el audio")
             return
+
+        respuesta = responder_ia(user_id, texto)
+        await update.message.reply_text(respuesta)
+        archivo_voz = generar_voz(respuesta)
+        await update.message.reply_voice(voice=open(archivo_voz,"rb"))
+
     else:
+        # --- Solo texto ---
         texto = update.message.text
-
-    # IA
-    respuesta = responder_ia(user_id, texto)
-
-    # Texto
-    await update.message.reply_text(respuesta)
-
-    # Voz
-    archivo_voz = generar_voz(respuesta)
-    await update.message.reply_voice(voice=open(archivo_voz,"rb"))
+        respuesta = responder_ia(user_id, texto)
+        await update.message.reply_text(respuesta)
 
 # =========================
 # INICIALIZAR BOT
@@ -191,16 +189,18 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("imagen", imagen))
-    app.add_handler(CommandHandler("logo", logo))
-    app.add_handler(CommandHandler("video", video))
+    app.add_handler(CommandHandler("imagen", comando_imagen))
+    app.add_handler(CommandHandler("video", comando_video))
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
-    print("🤖 Bot voz + texto + Pollinations listo")
+    print("🤖 Bot completo listo para Railway")
     app.run_polling()
+
+   
    
     
+
 
 
 
