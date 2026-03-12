@@ -1,20 +1,20 @@
 import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
-from google import genai
+from groq import Groq
 
 # =========================
 # VARIABLES
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # =========================
-# CLIENTE GEMINI
+# CLIENTE IA
 # =========================
 
-client = genai.Client(api_key=GOOGLE_API_KEY)
+client = Groq(api_key=GROQ_API_KEY)
 
 # memoria simple
 memoria = {}
@@ -28,27 +28,16 @@ def preguntar_ia(user_id, mensaje):
     if user_id not in memoria:
         memoria[user_id] = []
 
-    memoria[user_id].append(f"Usuario: {mensaje}")
+    memoria[user_id].append({"role": "user", "content": mensaje})
 
-    contexto = "\n".join(memoria[user_id][-10:])
-
-    prompt = f"""
-Eres un asistente inteligente dentro de Telegram.
-
-Conversación:
-{contexto}
-
-Responde claro y útil.
-"""
-
-    respuesta = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt
+    respuesta = client.chat.completions.create(
+        model="llama3-70b-8192",
+        messages=memoria[user_id]
     )
 
-    texto = respuesta.text
+    texto = respuesta.choices[0].message.content
 
-    memoria[user_id].append(f"Bot: {texto}")
+    memoria[user_id].append({"role": "assistant", "content": texto})
 
     return texto
 
@@ -78,6 +67,8 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 print("🤖 BOT IA ACTIVO")
 
 app.run_polling(drop_pending_updates=True)
+
+
 
 
 
