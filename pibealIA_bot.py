@@ -60,13 +60,16 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # INICIAR BOT
 # =========================
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+if __name__ == "__main__":
 
-app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
-print("🤖 BOT IA ACTIVO")
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-app.run_polling(drop_pending_updates=True)
+    print("🤖 BOT IA ACTIVO")
+
+    app.run_polling(drop_pending_updates=True)
+
 
 
 
