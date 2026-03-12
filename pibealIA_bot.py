@@ -11,7 +11,7 @@ from groq import Groq
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-HF_TOKEN = os.getenv("HF_TOKEN")  # Hugging Face API token gratuito
+HF_TOKEN = os.getenv("HF_TOKEN")  # Hugging Face Free Tier Token
 
 # =========================
 # CLIENTE IA
@@ -47,28 +47,21 @@ def preguntar_ia(user_id, mensaje):
 
 def generar_imagen(prompt):
     """
-    Genera una imagen usando Hugging Face Stable Diffusion (Free Tier)
+    Genera una imagen usando Hugging Face Free Tier
     """
     url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     data = {"inputs": prompt}
 
-    response = requests.post(url, headers=headers, json=data)
-    
+    response = requests.post(url, headers=headers, json=data, stream=True)
+
     if response.status_code == 200:
-        try:
-            result = response.json()
-            # Free Tier devuelve URL de imagen
-            if isinstance(result, dict) and "generated_image_url" in result:
-                imagen_url = result["generated_image_url"]
-                imagen_bytes = requests.get(imagen_url).content
-                archivo = "imagen.png"
-                with open(archivo, "wb") as f:
-                    f.write(imagen_bytes)
-                return archivo
-        except Exception as e:
-            print("Error descargando imagen:", e)
-            return None
+        archivo = "imagen.png"
+        with open(archivo, "wb") as f:
+            for chunk in response.iter_content(chunk_size=1024):
+                if chunk:
+                    f.write(chunk)
+        return archivo
     else:
         print("Error API Hugging Face:", response.status_code, response.text)
         return None
@@ -132,4 +125,4 @@ if __name__ == "__main__":
 
     print("🤖 BOT IA + Imagen/GIF ACTIVO")
     app.run_polling(drop_pending_updates=True, timeout=30)
-  
+
