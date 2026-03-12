@@ -8,7 +8,7 @@ from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filte
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -82,3 +82,4 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 print("🤖 BOT IA INICIADO")
 
 app.run_polling()
+
