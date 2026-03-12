@@ -77,6 +77,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
 print("🤖 BOT IA ACTIVO")
 
-app.run_polling()
+app.run_polling(drop_pending_updates=True)
+
 
 
