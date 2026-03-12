@@ -11,9 +11,8 @@ from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandle
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Para Whisper STT
-HF_TOKEN = os.getenv("HF_TOKEN")  # Para IA Hugging Face (opcional)
+HF_TOKEN = os.getenv("HF_TOKEN")  # Opcional: Hugging Face
 
-# Memoria simple por usuario
 memoria_ia = {}
 elecciones_imagen = {}
 
@@ -105,7 +104,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(mensaje)
 
-# Manejo de selección de imagen
 async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -126,7 +124,6 @@ async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await query.message.reply_photo(photo=open(tmp.name,"rb"))
         await query.edit_message_text("✅ Imagen seleccionada")
 
-# Generar imágenes Pollinations
 async def generar_imagen(update: Update, prompt):
     urls = generar_varias_imagenes(prompt, cantidad=3)
     elecciones_imagen[update.message.from_user.id] = urls
@@ -141,7 +138,6 @@ async def comando_imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = " ".join(context.args)
     await generar_imagen(update, prompt)
 
-# Generar video tipo GIF
 async def comando_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
         await update.message.reply_text("❌ Escribe al menos un prompt")
@@ -156,11 +152,9 @@ async def comando_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("❌ No se pudieron generar las imágenes para el video.")
 
-# Manejo de mensajes normales y audio
 async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
 
-    # --- Audio ---
     if update.message.voice:
         file_id = update.message.voice.file_id
         audio_file = await context.bot.get_file(file_id)
@@ -177,13 +171,12 @@ async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_voice(voice=open(archivo_voz,"rb"))
 
     else:
-        # --- Solo texto ---
         texto = update.message.text
         respuesta = responder_ia(user_id, texto)
         await update.message.reply_text(respuesta)
 
 # =========================
-# INICIALIZAR BOT
+# INICIALIZAR BOT CON WEBHOOK
 # =========================
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -194,12 +187,13 @@ if __name__ == "__main__":
     app.add_handler(CallbackQueryHandler(botones))
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
-    print("🤖 Bot completo listo para Railway")
-    app.run_polling()
-
-   
-   
-    
+    PORT = int(os.environ.get("PORT", 8443))
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TELEGRAM_TOKEN,
+        webhook_url=f"https://<TU-PROYECTO>.up.railway.app/{TELEGRAM_TOKEN}"
+    )
 
 
 
