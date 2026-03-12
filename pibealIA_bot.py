@@ -1,5 +1,4 @@
 import os
-import base64
 import requests
 import imageio
 from telegram import Update
@@ -48,24 +47,27 @@ def preguntar_ia(user_id, mensaje):
 
 def generar_imagen(prompt):
     """
-    Genera una imagen usando Hugging Face API gratuita (Stable Diffusion 2).
+    Genera una imagen usando Hugging Face Stable Diffusion (Free Tier)
     """
-    url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
+    url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     data = {"inputs": prompt}
 
     response = requests.post(url, headers=headers, json=data)
-
+    
     if response.status_code == 200:
         try:
             result = response.json()
-            imagen_bytes = base64.b64decode(result[0]["generated_image_base64"])
-            archivo = "imagen.png"
-            with open(archivo, "wb") as f:
-                f.write(imagen_bytes)
-            return archivo
+            # Free Tier devuelve URL de imagen
+            if isinstance(result, dict) and "generated_image_url" in result:
+                imagen_url = result["generated_image_url"]
+                imagen_bytes = requests.get(imagen_url).content
+                archivo = "imagen.png"
+                with open(archivo, "wb") as f:
+                    f.write(imagen_bytes)
+                return archivo
         except Exception as e:
-            print("Error decodificando imagen:", e)
+            print("Error descargando imagen:", e)
             return None
     else:
         print("Error API Hugging Face:", response.status_code, response.text)
@@ -73,7 +75,7 @@ def generar_imagen(prompt):
 
 def generar_gif(lista_imagenes, archivo="video.gif"):
     """
-    Genera un GIF animado a partir de varias imágenes locales.
+    Genera un GIF animado a partir de varias imágenes
     """
     frames = []
     for img_path in lista_imagenes:
@@ -101,9 +103,9 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ No se pudo generar la imagen.")
         return
 
-    # Comando /gif (simula un video con varias imágenes)
+    # Comando /gif (simula un video)
     if mensaje.startswith("/gif"):
-        prompts = mensaje.replace("/gif ", "").split("|")  # Separar prompts por "|"
+        prompts = mensaje.replace("/gif ", "").split("|")
         archivos = []
         for p in prompts:
             img = generar_imagen(p.strip())
@@ -130,3 +132,4 @@ if __name__ == "__main__":
 
     print("🤖 BOT IA + Imagen/GIF ACTIVO")
     app.run_polling(drop_pending_updates=True, timeout=30)
+  
