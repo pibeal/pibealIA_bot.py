@@ -1,7 +1,9 @@
 import os
+import base64
 import requests
+import imageio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
 from groq import Groq
 
 # =========================
@@ -10,7 +12,7 @@ from groq import Groq
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-HF_TOKEN = os.getenv("HF_TOKEN")  # Hugging Face API token
+HF_TOKEN = os.getenv("HF_TOKEN")  # Hugging Face API token gratuito
 
 # =========================
 # CLIENTE IA
@@ -41,43 +43,43 @@ def preguntar_ia(user_id, mensaje):
     return texto
 
 # =========================
-# FUNCIONES IMAGEN / VIDEO
+# FUNCIONES IMAGEN / GIF
 # =========================
 
 def generar_imagen(prompt):
     """
-    Genera imagen usando Hugging Face API.
+    Genera una imagen usando Hugging Face API gratuita (Stable Diffusion 2).
     """
-    url = "https://api-inference.huggingface.co/models/hogiahien/counterfeit-v30-edited"
+    url = "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2"
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
     data = {"inputs": prompt}
+
     response = requests.post(url, headers=headers, json=data)
+
     if response.status_code == 200:
-        imagen_bytes = response.content
-        archivo = "imagen.png"
-        with open(archivo, "wb") as f:
-            f.write(imagen_bytes)
-        return archivo
+        try:
+            result = response.json()
+            imagen_bytes = base64.b64decode(result[0]["generated_image_base64"])
+            archivo = "imagen.png"
+            with open(archivo, "wb") as f:
+                f.write(imagen_bytes)
+            return archivo
+        except Exception as e:
+            print("Error decodificando imagen:", e)
+            return None
     else:
+        print("Error API Hugging Face:", response.status_code, response.text)
         return None
 
-def generar_video(prompt):
+def generar_gif(lista_imagenes, archivo="video.gif"):
     """
-    Genera video simple (placeholder) usando Hugging Face text-to-video API.
-    Puedes cambiar el modelo por uno disponible en HF.
+    Genera un GIF animado a partir de varias imágenes locales.
     """
-    url = "https://api-inference.huggingface.co/models/hogiahien/video-diffusion"
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    data = {"inputs": prompt}
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code == 200:
-        video_bytes = response.content
-        archivo = "video.mp4"
-        with open(archivo, "wb") as f:
-            f.write(video_bytes)
-        return archivo
-    else:
-        return None
+    frames = []
+    for img_path in lista_imagenes:
+        frames.append(imageio.imread(img_path))
+    imageio.mimsave(archivo, frames, duration=0.7)
+    return archivo
 
 # =========================
 # TELEGRAM
@@ -89,26 +91,32 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.chat.send_action("typing")
 
-    # Comandos especiales
+    # Comando /imagen
     if mensaje.startswith("/imagen"):
         prompt = mensaje.replace("/imagen ", "")
         archivo = generar_imagen(prompt)
         if archivo:
             await update.message.reply_photo(photo=open(archivo, "rb"))
         else:
-            await update.message.reply_text("❌ Error generando la imagen.")
+            await update.message.reply_text("❌ No se pudo generar la imagen.")
         return
 
-    if mensaje.startswith("/video"):
-        prompt = mensaje.replace("/video ", "")
-        archivo = generar_video(prompt)
-        if archivo:
-            await update.message.reply_video(video=open(archivo, "rb"))
+    # Comando /gif (simula un video con varias imágenes)
+    if mensaje.startswith("/gif"):
+        prompts = mensaje.replace("/gif ", "").split("|")  # Separar prompts por "|"
+        archivos = []
+        for p in prompts:
+            img = generar_imagen(p.strip())
+            if img:
+                archivos.append(img)
+        if archivos:
+            gif = generar_gif(archivos)
+            await update.message.reply_document(document=open(gif, "rb"))
         else:
-            await update.message.reply_text("❌ Error generando el video.")
+            await update.message.reply_text("❌ No se pudieron generar las imágenes para el GIF.")
         return
 
-    # Respuesta IA normal
+    # Respuesta normal de IA
     respuesta = preguntar_ia(user_id, mensaje)
     await update.message.reply_text(respuesta)
 
@@ -120,9 +128,5 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-    print("🤖 BOT IA + Imagen/Video ACTIVO")
+    print("🤖 BOT IA + Imagen/GIF ACTIVO")
     app.run_polling(drop_pending_updates=True, timeout=30)
-
-
-
-
