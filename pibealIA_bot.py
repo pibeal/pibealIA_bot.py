@@ -4,7 +4,14 @@ import tempfile
 import imageio
 from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import ApplicationBuilder, MessageHandler, CallbackQueryHandler, CommandHandler, ContextTypes, filters
+from telegram.ext import (
+    ApplicationBuilder,
+    MessageHandler,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    filters,
+)
 
 # =========================
 # VARIABLES DE ENTORNO
@@ -154,7 +161,6 @@ async def comando_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.message.from_user.id
-
     if update.message.voice:
         file_id = update.message.voice.file_id
         audio_file = await context.bot.get_file(file_id)
@@ -164,12 +170,10 @@ async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not texto:
             await update.message.reply_text("❌ No se pudo reconocer el audio")
             return
-
         respuesta = responder_ia(user_id, texto)
         await update.message.reply_text(respuesta)
         archivo_voz = generar_voz(respuesta)
         await update.message.reply_voice(voice=open(archivo_voz,"rb"))
-
     else:
         texto = update.message.text
         respuesta = responder_ia(user_id, texto)
@@ -180,7 +184,6 @@ async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("imagen", comando_imagen))
     app.add_handler(CommandHandler("video", comando_video))
@@ -194,6 +197,7 @@ if __name__ == "__main__":
         url_path=TELEGRAM_TOKEN,
         webhook_url=f"https://<TU-PROYECTO>.up.railway.app/{TELEGRAM_TOKEN}"
     )
+  
 
 
 
