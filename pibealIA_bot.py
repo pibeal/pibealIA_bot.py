@@ -17,8 +17,9 @@ from telegram.ext import (
 # VARIABLES DE ENTORNO
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Para Whisper STT
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # Whisper STT
 HF_TOKEN = os.getenv("HF_TOKEN")  # Opcional: Hugging Face
+PROYECTO_URL = os.getenv("RAILWAY_STATIC_URL")  # URL pública Railway
 
 memoria_ia = {}
 elecciones_imagen = {}
@@ -42,7 +43,7 @@ def responder_ia(user_id, mensaje):
         else:
             texto = f"Error HF: {r.status_code}"
     else:
-        texto = f"IA responde: {mensaje}"  # fallback simple
+        texto = f"IA responde: {mensaje}"
 
     memoria_ia[user_id].append({"role":"assistant","content":texto})
     return texto
@@ -191,14 +192,18 @@ if __name__ == "__main__":
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, mensaje_normal))
 
     PORT = int(os.environ.get("PORT", 8443))
+    if not PROYECTO_URL:
+        raise RuntimeError("Debes definir la variable RAILWAY_STATIC_URL con la URL pública de Railway")
+
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TELEGRAM_TOKEN,
-        webhook_url=f"https://<TU-PROYECTO>.up.railway.app/{TELEGRAM_TOKEN}"
+        webhook_url=f"{PROYECTO_URL}/{TELEGRAM_TOKEN}"
     )
-  
+      
+   
 
-
+   
 
 
