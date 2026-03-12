@@ -31,7 +31,7 @@ def preguntar_ia(user_id, mensaje):
     memoria[user_id].append({"role": "user", "content": mensaje})
 
     respuesta = client.chat.completions.create(
-        model="llama3-8b-8192"
+        model="llama3-8b-8192",
         messages=memoria[user_id]
     )
 
@@ -67,6 +67,7 @@ app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 print("🤖 BOT IA ACTIVO")
 
 app.run_polling(drop_pending_updates=True)
+
 
 
 
