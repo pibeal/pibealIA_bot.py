@@ -1,27 +1,26 @@
 import os
-import google.generativeai as genai
 from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, ContextTypes, filters
+from google import genai
 
 # =========================
-# CONFIGURACION
+# VARIABLES
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-model = genai.GenerativeModel("gemini-1.5-flash")
-
 # =========================
-# MEMORIA DE CONVERSACION
+# CLIENTE GEMINI
 # =========================
 
+client = genai.Client(api_key=GOOGLE_API_KEY)
+
+# memoria simple
 memoria = {}
 
 # =========================
-# FUNCION IA
+# IA
 # =========================
 
 def preguntar_ia(user_id, mensaje):
@@ -36,19 +35,16 @@ def preguntar_ia(user_id, mensaje):
     prompt = f"""
 Eres un asistente inteligente dentro de Telegram.
 
-Debes:
-- responder preguntas
-- ayudar con programación
-- explicar conceptos
-- resolver problemas
-
 Conversación:
 {contexto}
 
-Responde de forma clara y útil.
+Responde claro y útil.
 """
 
-    respuesta = model.generate_content(prompt)
+    respuesta = client.models.generate_content(
+        model="gemini-2.0-flash",
+        contents=prompt
+    )
 
     texto = respuesta.text
 
@@ -57,7 +53,7 @@ Responde de forma clara y útil.
     return texto
 
 # =========================
-# MENSAJES
+# TELEGRAM
 # =========================
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,7 +75,8 @@ app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
-print("🤖 BOT IA INICIADO")
+print("🤖 BOT IA ACTIVO")
 
 app.run_polling()
+
 
