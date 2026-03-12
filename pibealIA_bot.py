@@ -2,6 +2,7 @@ import os
 import requests
 import imageio
 import tempfile
+from gtts import gTTS
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, ContextTypes, filters
 
@@ -9,8 +10,9 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 # VARIABLES DE ENTORNO
 # =========================
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Opcional para IA avanzada
-HF_TOKEN = os.getenv("HF_TOKEN")          # Opcional para IA avanzada Hugging Face
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Opcional
+HF_TOKEN = os.getenv("HF_TOKEN")          # Opcional
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY")    # Opcional
 
 # =========================
 # MEMORIA Y ELECCIONES
@@ -23,14 +25,12 @@ elecciones_video = {}   # {user_id: [urls seleccionadas]}
 # FUNCIONES IA
 # =========================
 def responder_ia(user_id, mensaje):
-    """Usa Groq o HF si están configurados, sino respuesta simulada"""
     if user_id not in memoria_ia:
         memoria_ia[user_id] = []
 
     memoria_ia[user_id].append({"role": "user", "content": mensaje})
-
-    # Aquí puedes agregar Groq o Hugging Face
     respuesta = None
+
     if GROQ_API_KEY:
         try:
             from groq import Groq
@@ -44,7 +44,6 @@ def responder_ia(user_id, mensaje):
             respuesta = f"Error Groq: {e}"
     elif HF_TOKEN:
         try:
-            import requests
             url = "https://api-inference.huggingface.co/models/gpt2"
             headers = {"Authorization": f"Bearer {HF_TOKEN}"}
             data = {"inputs": mensaje}
@@ -56,19 +55,18 @@ def responder_ia(user_id, mensaje):
         except Exception as e:
             respuesta = f"Error HF: {e}"
     else:
-        respuesta = f"IA dice: {mensaje}"  # Simulación simple
+        respuesta = f"IA dice: {mensaje}"
 
     memoria_ia[user_id].append({"role": "assistant", "content": respuesta})
     return respuesta
 
 # =========================
-# FUNCIONES POLLINATIONS
+# POLLINATIONS
 # =========================
 def generar_imagen_pollinations(prompt, estilo=None):
     if estilo:
         prompt = f"{prompt}, estilo {estilo}"
-    url = f"https://image.pollinations.ai/prompt/{prompt}"
-    return url
+    return f"https://image.pollinations.ai/prompt/{prompt}"
 
 def generar_varias_imagenes(prompt, estilo=None, cantidad=5):
     urls = []
@@ -94,30 +92,30 @@ def generar_video_pollinations(urls, fps=3):
     return None
 
 # =========================
+# VOZ CON gTTS
+# =========================
+async def enviar_voz(update, texto):
+    tts = gTTS(text=texto, lang='es')
+    with tempfile.NamedTemporaryFile(suffix=".mp3") as tmp:
+        tts.save(tmp.name)
+        await update.message.reply_voice(voice=open(tmp.name, "rb"))
+
+# =========================
 # TELEGRAM HANDLERS
 # =========================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mensaje = (
-        "🤖 Bot IA + Pollinations DEFINITIVO\n\n"
-        "Comandos:\n"
-        "/texto <mensaje> - Respuesta IA (Groq/HF opcional)\n"
-        "/imagen <descripción> | <estilo opcional> - Varias imágenes para elegir\n"
-        "/logo <descripción> | <estilo opcional> - Varias opciones de logo\n"
-        "/video <prompt1>|<prompt2>|... - Video animado"
+        "🤖 Bot IA + Pollinations + Voz DEFINITIVO\n\n"
+        "Escribe directamente tu mensaje o usa:\n"
+        "/imagen <descripción> | <estilo opcional>\n"
+        "/logo <descripción> | <estilo opcional>\n"
+        "/video <prompt1>|<prompt2>|..."
     )
     await update.message.reply_text(mensaje)
 
-async def texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        await update.message.reply_text("❌ Debes escribir un mensaje. Ej: /texto Hola IA")
-        return
-    prompt = " ".join(context.args)
-    respuesta = responder_ia(update.message.from_user.id, prompt)
-    await update.message.reply_text(respuesta)
-
 async def imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ Debes escribir la descripción. Ej: /imagen Gato astronauta | estilo anime")
+        await update.message.reply_text("❌ Escribe la descripción. Ej: /imagen Gato astronauta | estilo anime")
         return
     texto = " ".join(context.args)
     partes = texto.split("|")
@@ -133,7 +131,7 @@ async def imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def logo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ Debes escribir la descripción. Ej: /logo Logo robot | estilo futurista")
+        await update.message.reply_text("❌ Escribe la descripción. Ej: /logo Logo robot | estilo futurista")
         return
     texto = " ".join(context.args)
     partes = texto.split("|")
@@ -149,7 +147,7 @@ async def logo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def video(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        await update.message.reply_text("❌ Debes escribir al menos un prompt. Ej: /video gato|perro|robot")
+        await update.message.reply_text("❌ Escribe al menos un prompt. Ej: /video gato|perro|robot")
         return
     prompts = " ".join(context.args).split("|")
     urls = []
@@ -178,8 +176,41 @@ async def botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id not in elecciones_video:
             elecciones_video[user_id] = []
         elecciones_video[user_id].append(url)
+
+        r = requests.get(url)
+        if r.status_code == 200:
+            with tempfile.NamedTemporaryFile(suffix=".png") as tmp:
+                tmp.write(r.content)
+                tmp.flush()
+                await query.message.reply_photo(photo=open(tmp.name, "rb"))
         await query.edit_message_text("✅ Has seleccionado esta imagen para tu colección.")
-        await query.message.reply_photo(photo=url)
+
+# =========================
+# MENSAJES NORMALES SIN /
+# =========================
+async def mensaje_normal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto = update.message.text
+    user_id = update.message.from_user.id
+
+    # Detecta si el usuario pide noticias
+    if "noticia" in texto.lower() or "últimas noticias" in texto.lower():
+        if NEWSAPI_KEY:
+            url = f"https://newsapi.org/v2/top-headlines?country=mx&apiKey={NEWSAPI_KEY}&pageSize=3"
+            r = requests.get(url).json()
+            if r.get("status") == "ok":
+                noticias = r.get("articles", [])
+                mensaje = "📰 Últimas noticias:\n\n"
+                for n in noticias:
+                    mensaje += f"- {n['title']} ({n['source']['name']})\n{n['url']}\n\n"
+            else:
+                mensaje = "❌ No se pudieron obtener noticias ahora."
+            await update.message.reply_text(mensaje)
+            return
+
+    # Si no son noticias, responder con IA
+    respuesta = responder_ia(user_id, texto)
+    await update.message.reply_text(respuesta)
+    await enviar_voz(update, respuesta)
 
 # =========================
 # INICIALIZAR BOT
@@ -189,13 +220,16 @@ if __name__ == "__main__":
 
     # Comandos
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("texto", texto))
     app.add_handler(CommandHandler("imagen", imagen))
     app.add_handler(CommandHandler("logo", logo))
     app.add_handler(CommandHandler("video", video))
     app.add_handler(CallbackQueryHandler(botones))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, texto))
 
-    print("🤖 BOT IA + Pollinations DEFINITIVO ACTIVO")
+    # Mensajes normales
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_normal))
+
+    print("🤖 BOT IA + Pollinations + Voz + Noticias FINAL ACTIVO")
     app.run_polling()
+   
+
 
