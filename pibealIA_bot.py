@@ -68,7 +68,8 @@ if __name__ == "__main__":
 
     print("🤖 BOT IA ACTIVO")
 
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(drop_pending_updates=True, timeout=30)
+
 
 
 
