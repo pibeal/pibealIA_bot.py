@@ -1,7 +1,8 @@
 python-telegram-bot==20.8
 groq
 requests
-imageio-ffmpeg
+imageio
+pillow
 
 
 
