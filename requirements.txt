@@ -3,7 +3,7 @@ requests
 imageio
 pillow
 gTTS
-groq
+
 
 
 
