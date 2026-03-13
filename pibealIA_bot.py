@@ -1,6 +1,7 @@
 import os
 import requests
 import sqlite3
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 import uvicorn
@@ -15,13 +16,14 @@ from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTyp
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
 
 
 # =========================
-# BASE DE DATOS (memoria)
+# BASE DE DATOS
 # =========================
 
 conn = sqlite3.connect("memoria.db", check_same_thread=False)
@@ -38,7 +40,7 @@ conn.commit()
 
 
 # =========================
-# GUARDAR MEMORIA
+# MEMORIA
 # =========================
 
 def guardar_memoria(user_id, texto):
@@ -51,14 +53,10 @@ def guardar_memoria(user_id, texto):
     conn.commit()
 
 
-# =========================
-# OBTENER MEMORIA
-# =========================
-
 def obtener_memoria(user_id):
 
     cursor.execute(
-        "SELECT mensaje FROM memoria WHERE user_id=? ORDER BY rowid DESC LIMIT 5",
+        "SELECT mensaje FROM memoria WHERE user_id=? ORDER BY rowid DESC LIMIT 6",
         (user_id,)
     )
 
@@ -81,10 +79,10 @@ def responder_ia(user_id, texto):
     memoria = obtener_memoria(user_id)
 
     prompt = f"""
-Historial:
+Historial del usuario:
 {memoria}
 
-Usuario:
+Pregunta:
 {texto}
 """
 
@@ -105,7 +103,6 @@ Usuario:
     try:
 
         r = requests.post(url, headers=headers, json=data, timeout=30)
-
         js = r.json()
 
         if "choices" not in js:
@@ -135,8 +132,7 @@ def obtener_noticias(query):
     data = r.json()
 
     if "articles" not in data:
-
-        return "⚠️ No se pudieron obtener noticias"
+        return "⚠️ Error obteniendo noticias"
 
     texto = ""
 
@@ -172,7 +168,7 @@ def generar_imagen(prompt):
 
     try:
 
-        r = requests.post(url, headers=headers, json=data)
+        requests.post(url, headers=headers, json=data)
 
         return "🖼 Imagen generándose..."
 
@@ -188,7 +184,7 @@ def generar_imagen(prompt):
 def analizar_codigo(codigo):
 
     prompt = f"""
-Analiza este código y explica errores:
+Analiza este código y explica errores o mejoras:
 
 {codigo}
 """
@@ -208,6 +204,25 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text
     user_id = str(update.message.from_user.id)
 
+
+    if texto.startswith("/start"):
+
+        msg = """
+🤖 BOT IA ULTRA
+
+Comandos:
+
+/noticias tema
+/imagen descripcion
+/codigo codigo
+
+También puedes hablar normalmente.
+"""
+
+        await update.message.reply_text(msg)
+        return
+
+
     if texto.startswith("/noticias"):
 
         q = texto.replace("/noticias", "").strip()
@@ -215,8 +230,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         noticias = obtener_noticias(q)
 
         await update.message.reply_text(noticias)
-
         return
+
 
     if texto.startswith("/imagen"):
 
@@ -225,8 +240,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = generar_imagen(prompt)
 
         await update.message.reply_text(msg)
-
         return
+
 
     if texto.startswith("/codigo"):
 
@@ -235,8 +250,8 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         analisis = analizar_codigo(codigo)
 
         await update.message.reply_text(analisis)
-
         return
+
 
     respuesta = responder_ia(user_id, texto)
 
@@ -250,16 +265,18 @@ app.add_handler(MessageHandler(filters.TEXT, chat))
 # FASTAPI
 # =========================
 
-api = FastAPI()
-
-
-@api.on_event("startup")
-async def startup():
+@asynccontextmanager
+async def lifespan(api: FastAPI):
 
     await app.initialize()
     await app.start()
 
     await app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+
+    yield
+
+
+api = FastAPI(lifespan=lifespan)
 
 
 @api.post("/webhook")
@@ -286,7 +303,9 @@ if __name__ == "__main__":
         port=int(os.environ.get("PORT", 8080))
     )
 
-  
+
+
+
 
   
 
