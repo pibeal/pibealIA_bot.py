@@ -12,7 +12,7 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-7b")  # Modelo configurable
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")  # fallback automático
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
     raise ValueError("⚠️ Asegúrate de definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
@@ -41,7 +41,7 @@ def preguntar_ia(pregunta: str) -> str:
         return js["choices"][0]["message"]["content"]
     except requests.exceptions.HTTPError as e:
         print("ERROR IA:", e, r.text)
-        return "⚠️ La IA tuvo un problema con la solicitud a Groq."
+        return f"⚠️ La IA tuvo un problema con la solicitud a Groq (modelo: {GROQ_MODEL})."
     except Exception as e:
         print("ERROR IA:", e)
         return "⚠️ La IA tuvo un problema temporal."
@@ -93,11 +93,6 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-
-
-
-
-
   
 
 
