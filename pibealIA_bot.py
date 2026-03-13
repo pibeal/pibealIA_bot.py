@@ -17,6 +17,7 @@ from telegram.ext import (
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 client = Groq(api_key=GROQ_API_KEY)
 
@@ -147,6 +148,7 @@ if __name__ == "__main__":
 
 
    
+
 
 
 
