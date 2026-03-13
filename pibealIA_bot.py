@@ -104,7 +104,6 @@ Usuario:
     }
 
     try:
-
 r = requests.post(url, headers=headers, json=data, timeout=30)
 
 js = r.json()
