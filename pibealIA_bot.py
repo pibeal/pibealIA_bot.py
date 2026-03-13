@@ -12,19 +12,19 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
+if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
+    raise ValueError("⚠️ Asegúrate de tener TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL definidos.")
+
 # =========================
 # IA GROQ
 # =========================
 
-def preguntar_ia(pregunta):
-
+def preguntar_ia(pregunta: str) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
-
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-
     data = {
         "model": "llama-3.1-70b-versatile",
         "messages": [
@@ -40,14 +40,11 @@ def preguntar_ia(pregunta):
     }
 
     try:
-
-        r = requests.post(url, headers=headers, json=data, timeout=30)
+        r = requests.post(url, headers=headers, json=data, timeout=60)
+        r.raise_for_status()
         js = r.json()
-
         return js["choices"][0]["message"]["content"]
-
     except Exception as e:
-
         print("ERROR IA:", e)
         return "⚠️ La IA tuvo un problema temporal."
 
@@ -56,19 +53,17 @@ def preguntar_ia(pregunta):
 # =========================
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
 
     texto = update.message.text.lower()
 
     if texto in ["hola", "buenas", "hey", "inicio", "start"]:
-
         mensaje = "👋 Hola, soy **Pibeal IA** 🤖\n\n¿En qué puedo ayudarte hoy?"
-
         await update.message.reply_text(mensaje)
-
         return
 
     respuesta = preguntar_ia(texto)
-
     await update.message.reply_text(respuesta)
 
 # =========================
@@ -76,7 +71,6 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # =========================
 
 bot = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
 bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
 # =========================
@@ -87,13 +81,9 @@ app = FastAPI()
 
 @app.post("/webhook")
 async def webhook(req: Request):
-
     data = await req.json()
-
     update = Update.de_json(data, bot.bot)
-
     await bot.process_update(update)
-
     return {"ok": True}
 
 # =========================
@@ -102,11 +92,10 @@ async def webhook(req: Request):
 
 @app.on_event("startup")
 async def startup():
-
+    # Inicializamos el bot sin polling
     await bot.initialize()
-    await bot.start()
-
     await bot.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    print("✅ Webhook configurado en:", f"{WEBHOOK_URL}/webhook")
 
 
   
