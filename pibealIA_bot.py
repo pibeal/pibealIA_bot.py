@@ -1,11 +1,12 @@
 import os
 import requests
 from groq import Groq
+
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
-    CommandHandler,
     MessageHandler,
+    CommandHandler,
     ContextTypes,
     filters
 )
@@ -22,7 +23,7 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 client = Groq(api_key=GROQ_API_KEY)
 
 # =========================
-# IA GROQ
+# IA
 # =========================
 
 def responder_ia(mensaje):
@@ -38,6 +39,35 @@ def responder_ia(mensaje):
 
 
 # =========================
+# NOTICIAS
+# =========================
+
+def obtener_noticias(query=""):
+
+    if query == "":
+        url = f"https://newsapi.org/v2/top-headlines?language=es&pageSize=5&apiKey={NEWS_API_KEY}"
+    else:
+        url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
+
+    r = requests.get(url)
+    data = r.json()
+
+    noticias = ""
+
+    if "articles" not in data:
+        return "No pude obtener noticias ahora."
+
+    for n in data["articles"][:5]:
+
+        titulo = n["title"]
+        link = n["url"]
+
+        noticias += f"📰 {titulo}\n{link}\n\n"
+
+    return noticias
+
+
+# =========================
 # START
 # =========================
 
@@ -46,46 +76,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = """
 🤖 BOT IA ACTIVO
 
-Comandos:
+Puedes preguntarme lo que quieras.
 
-/imagen prompt
-Ejemplo:
-/imagen gato astronauta
+Ejemplos:
 
-También puedes:
-🎤 mandar audio
-💬 escribir preguntas
+noticias tecnologia  
+noticias crypto  
+genera imagen de robot futurista  
+explicame python  
+
+También puedes mandar 🎤 audio.
 """
 
     await update.message.reply_text(texto)
 
 
 # =========================
-# IA TEXTO
+# IMAGEN
 # =========================
 
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    mensaje = update.message.text
-
-    await update.message.reply_text("🤖 pensando...")
-
-    respuesta = responder_ia(mensaje)
-
-    await update.message.reply_text(respuesta)
-
-
-# =========================
-# GENERAR IMAGEN
-# =========================
-
-async def imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    if not context.args:
-        await update.message.reply_text("Usa: /imagen descripcion")
-        return
-
-    prompt = " ".join(context.args)
+async def imagen(update: Update, prompt):
 
     url = f"https://image.pollinations.ai/prompt/{prompt}"
 
@@ -93,7 +103,7 @@ async def imagen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
-# AUDIO → TEXTO
+# AUDIO
 # =========================
 
 async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -128,6 +138,42 @@ async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # =========================
+# CHAT PRINCIPAL
+# =========================
+
+async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    mensaje = update.message.text.lower()
+
+    # NOTICIAS
+    if "noticia" in mensaje or "news" in mensaje:
+
+        palabras = mensaje.replace("noticias", "").replace("noticia", "").replace("news", "").strip()
+
+        noticias = obtener_noticias(palabras)
+
+        await update.message.reply_text(noticias)
+
+        return
+
+    # IMAGEN
+    if "imagen" in mensaje or "genera imagen" in mensaje:
+
+        prompt = mensaje.replace("imagen", "").replace("genera imagen", "").strip()
+
+        await imagen(update, prompt)
+
+        return
+
+    # IA NORMAL
+    await update.message.reply_text("🤖 pensando...")
+
+    respuesta = responder_ia(mensaje)
+
+    await update.message.reply_text(respuesta)
+
+
+# =========================
 # MAIN
 # =========================
 
@@ -136,7 +182,6 @@ if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("imagen", imagen))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     app.add_handler(MessageHandler(filters.VOICE, audio))
@@ -147,7 +192,9 @@ if __name__ == "__main__":
 
 
 
+
    
+
 
 
 
