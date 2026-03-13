@@ -1,13 +1,13 @@
 import os
 import requests
-import time
+from flask import Flask, request
 
 from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
+    ContextTypes,
     MessageHandler,
     CommandHandler,
-    ContextTypes,
     filters
 )
 
@@ -15,18 +15,26 @@ from telegram.ext import (
 # VARIABLES
 # =========================
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+
+# =========================
+# APP WEB
+# =========================
+
+flask_app = Flask(__name__)
+
+# =========================
+# IA
+# =========================
 
 memoria = {}
 
-# =========================
-# IA (Groq API directa)
-# =========================
-
-def responder_ia(user_id, mensaje):
+def ia_respuesta(user_id, texto):
 
     url = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -38,62 +46,41 @@ def responder_ia(user_id, mensaje):
     if user_id not in memoria:
         memoria[user_id] = []
 
-    memoria[user_id].append({"role": "user", "content": mensaje})
+    memoria[user_id].append({"role":"user","content":texto})
 
     data = {
         "model": "llama3-70b-8192",
         "messages": memoria[user_id][-6:]
     }
 
-    try:
+    r = requests.post(url, headers=headers, json=data)
 
-        r = requests.post(url, headers=headers, json=data, timeout=30)
+    respuesta = r.json()["choices"][0]["message"]["content"]
 
-        if r.status_code != 200:
-            return "⚠️ Error al consultar la IA."
+    memoria[user_id].append({"role":"assistant","content":respuesta})
 
-        respuesta = r.json()
-
-        texto = respuesta["choices"][0]["message"]["content"]
-
-        memoria[user_id].append({"role": "assistant", "content": texto})
-
-        return texto
-
-    except Exception:
-        return "⚠️ La IA está ocupada, intenta nuevamente."
+    return respuesta
 
 
 # =========================
 # NOTICIAS
 # =========================
 
-def obtener_noticias(query=""):
+def noticias(query):
 
-    if query == "":
-        url = f"https://newsapi.org/v2/top-headlines?language=es&pageSize=5&apiKey={NEWS_API_KEY}"
-    else:
-        url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
+    url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
 
-    try:
+    r = requests.get(url)
 
-        r = requests.get(url)
+    data = r.json()
 
-        data = r.json()
+    texto = ""
 
-        if "articles" not in data:
-            return "No pude obtener noticias."
+    for n in data["articles"][:5]:
 
-        noticias = ""
+        texto += f"📰 {n['title']}\n{n['url']}\n\n"
 
-        for n in data["articles"][:5]:
-
-            noticias += f"📰 {n['title']}\n{n['url']}\n\n"
-
-        return noticias
-
-    except:
-        return "Error obteniendo noticias."
+    return texto
 
 
 # =========================
@@ -102,29 +89,29 @@ def obtener_noticias(query=""):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    texto = """
-🤖 BOT IA ACTIVO
+    await update.message.reply_text(
+"""
+🤖 BOT IA PRO ACTIVO
 
 Puedes preguntarme cualquier cosa.
 
 Ejemplos:
 
 noticias tecnologia
-noticias crypto
+noticias bitcoin
 genera imagen robot futurista
 explicame python
 
-También puedes enviar 🎤 audio.
+También puedes enviarme audio 🎤
 """
-
-    await update.message.reply_text(texto)
+)
 
 
 # =========================
 # IMAGEN
 # =========================
 
-async def generar_imagen(update, prompt):
+async def imagen(update, prompt):
 
     url = f"https://image.pollinations.ai/prompt/{prompt}"
 
@@ -139,9 +126,9 @@ async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     file = await update.message.voice.get_file()
 
-    ruta = "audio.ogg"
+    path = "audio.ogg"
 
-    await file.download_to_drive(ruta)
+    await file.download_to_drive(path)
 
     url = "https://api.openai.com/v1/audio/transcriptions"
 
@@ -149,58 +136,80 @@ async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Authorization": f"Bearer {OPENAI_API_KEY}"
     }
 
-    files = {
-        "file": open(ruta, "rb")
-    }
-
-    data = {
-        "model": "whisper-1"
-    }
+    files = {"file": open(path,"rb")}
+    data = {"model":"whisper-1"}
 
     r = requests.post(url, headers=headers, files=files, data=data)
 
     texto = r.json()["text"]
 
-    respuesta = responder_ia(update.message.from_user.id, texto)
+    respuesta = ia_respuesta(update.message.from_user.id, texto)
 
     await update.message.reply_text(respuesta)
 
 
 # =========================
-# CHAT PRINCIPAL
+# CHAT
 # =========================
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    texto = update.message.text.lower()
+
     user_id = update.message.from_user.id
-    mensaje = update.message.text.lower()
 
-    # NOTICIAS
-    if "noticia" in mensaje or "news" in mensaje:
+    if "noticia" in texto:
 
-        tema = mensaje.replace("noticias", "").replace("noticia", "").replace("news", "").strip()
+        tema = texto.replace("noticias","").replace("noticia","").strip()
 
-        noticias = obtener_noticias(tema)
+        if tema == "":
+            tema = "tecnologia"
 
-        await update.message.reply_text(noticias)
-
-        return
-
-    # IMAGEN
-    if "imagen" in mensaje:
-
-        prompt = mensaje.replace("imagen", "").replace("genera", "").strip()
-
-        await generar_imagen(update, prompt)
+        await update.message.reply_text(noticias(tema))
 
         return
 
-    # IA NORMAL
-    await update.message.reply_text("🤖 pensando...")
+    if "imagen" in texto or "genera" in texto:
 
-    respuesta = responder_ia(user_id, mensaje)
+        prompt = texto.replace("imagen","").replace("genera","").strip()
+
+        await imagen(update,prompt)
+
+        return
+
+    respuesta = ia_respuesta(user_id, texto)
 
     await update.message.reply_text(respuesta)
+
+
+# =========================
+# TELEGRAM APP
+# =========================
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
+app.add_handler(MessageHandler(filters.VOICE, audio))
+
+
+# =========================
+# WEBHOOK
+# =========================
+
+@flask_app.route("/", methods=["GET"])
+def home():
+    return "BOT ONLINE"
+
+
+@flask_app.route("/webhook", methods=["POST"])
+async def webhook():
+
+    update = Update.de_json(request.get_json(force=True), app.bot)
+
+    await app.process_update(update)
+
+    return "ok"
 
 
 # =========================
@@ -209,27 +218,17 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
 
-    requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
+    requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
 
-    time.sleep(5)
-
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
-    app.add_handler(MessageHandler(filters.VOICE, audio))
-
-    print("BOT ONLINE")
-
-    app.run_polling(
-        allowed_updates=Update.ALL_TYPES,
-        drop_pending_updates=True
+    requests.get(
+        f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}/webhook"
     )
+
+    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
+
 
 
    
-
-
 
 
 
