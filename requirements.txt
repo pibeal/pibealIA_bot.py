@@ -1,8 +1,8 @@
 python-telegram-bot==20.8
-groq
 requests
 pillow
 imageio
+
 
 
 
