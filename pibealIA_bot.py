@@ -110,7 +110,7 @@ Usuario:
         js=r.json()
 
         if "choices" not in js:
-            return "Hubo un problema con la IA."
+    return f"Error IA:\n{js}"
 
         respuesta=js["choices"][0]["message"]["content"]
 
