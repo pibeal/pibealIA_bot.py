@@ -12,13 +12,18 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile")  # fallback automático
+
+# Lista de modelos disponibles que probará automáticamente
+GROQ_MODELS = os.getenv(
+    "GROQ_MODELS",
+    "llama-3.3-70b-versatile,llama-3.1-70b-versatile,llama3-8b-8192,llama3-70b8192"
+).split(",")
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
-    raise ValueError("⚠️ Asegúrate de definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
+    raise ValueError("⚠️ Debes definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
 
 # =========================
-# FUNCIÓN IA GROQ
+# FUNCIÓN IA GROQ CON FALLBACK
 # =========================
 
 def preguntar_ia(pregunta: str) -> str:
@@ -27,24 +32,26 @@ def preguntar_ia(pregunta: str) -> str:
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    data = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología y conversación."},
-            {"role": "user", "content": pregunta}
-        ]
-    }
-    try:
-        r = requests.post(url, headers=headers, json=data, timeout=60)
-        r.raise_for_status()
-        js = r.json()
-        return js["choices"][0]["message"]["content"]
-    except requests.exceptions.HTTPError as e:
-        print("ERROR IA:", e, r.text)
-        return f"⚠️ La IA tuvo un problema con la solicitud a Groq (modelo: {GROQ_MODEL})."
-    except Exception as e:
-        print("ERROR IA:", e)
-        return "⚠️ La IA tuvo un problema temporal."
+    for modelo in GROQ_MODELS:
+        data = {
+            "model": modelo,
+            "messages": [
+                {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología y conversación."},
+                {"role": "user", "content": pregunta}
+            ]
+        }
+        try:
+            r = requests.post(url, headers=headers, json=data, timeout=60)
+            r.raise_for_status()
+            js = r.json()
+            return js["choices"][0]["message"]["content"]
+        except requests.exceptions.HTTPError as e:
+            print(f"ERROR IA con modelo {modelo}: {e} {r.text}")
+            continue  # prueba el siguiente modelo
+        except Exception as e:
+            print(f"ERROR IA con modelo {modelo}: {e}")
+            continue
+    return "⚠️ La IA no pudo responder. Ningún modelo disponible funcionó."
 
 # =========================
 # HANDLER TELEGRAM
@@ -93,7 +100,7 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-  
+
 
 
 
