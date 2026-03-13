@@ -208,7 +208,6 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
 
-    # limpiar webhook viejo para evitar conflicto
     requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
 
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -219,10 +218,11 @@ if __name__ == "__main__":
 
     print("BOT ONLINE")
 
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
    
+
 
 
 
