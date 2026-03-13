@@ -1,8 +1,9 @@
-python-telegram-bot[webhooks]==20.8
+python-telegram-bot==20.8
+groq
 requests
-imageio
 pillow
-gTTS
+imageio
+
 
 
 
