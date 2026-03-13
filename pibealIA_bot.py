@@ -105,22 +105,18 @@ Usuario:
 
     try:
 
-        r=requests.post(url,headers=headers,json=data,timeout=30)
+r = requests.post(url, headers=headers, json=data, timeout=30)
 
-        js=r.json()
+js = r.json()
 
-        if "choices" not in js:
+if "choices" not in js:
     return f"Error IA:\n{js}"
 
-        respuesta=js["choices"][0]["message"]["content"]
+respuesta = js["choices"][0]["message"]["content"]
 
-        guardar_memoria(user,texto)
+guardar_memoria(user, texto)
 
-        return respuesta
-
-    except:
-
-        return "La IA no respondió."
+return respuesta
 
 
 # =====================
