@@ -19,11 +19,10 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
-# memoria de conversaciones
 memoria = {}
 
 # =========================
-# IA GROQ
+# IA (Groq API directa)
 # =========================
 
 def responder_ia(user_id, mensaje):
@@ -42,12 +41,15 @@ def responder_ia(user_id, mensaje):
 
     data = {
         "model": "llama3-70b-8192",
-        "messages": memoria[user_id][-6:]  # guarda contexto
+        "messages": memoria[user_id][-6:]
     }
 
     try:
 
         r = requests.post(url, headers=headers, json=data, timeout=30)
+
+        if r.status_code != 200:
+            return "⚠️ Error al consultar la IA."
 
         respuesta = r.json()
 
@@ -57,8 +59,7 @@ def responder_ia(user_id, mensaje):
 
         return texto
 
-    except Exception as e:
-
+    except Exception:
         return "⚠️ La IA está ocupada, intenta nuevamente."
 
 
@@ -73,20 +74,25 @@ def obtener_noticias(query=""):
     else:
         url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
 
-    r = requests.get(url)
+    try:
 
-    data = r.json()
+        r = requests.get(url)
 
-    if "articles" not in data:
-        return "No pude obtener noticias."
+        data = r.json()
 
-    noticias = ""
+        if "articles" not in data:
+            return "No pude obtener noticias."
 
-    for n in data["articles"][:5]:
+        noticias = ""
 
-        noticias += f"📰 {n['title']}\n{n['url']}\n\n"
+        for n in data["articles"][:5]:
 
-    return noticias
+            noticias += f"📰 {n['title']}\n{n['url']}\n\n"
+
+        return noticias
+
+    except:
+        return "Error obteniendo noticias."
 
 
 # =========================
@@ -188,7 +194,7 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # IA
+    # IA NORMAL
     await update.message.reply_text("🤖 pensando...")
 
     respuesta = responder_ia(user_id, mensaje)
@@ -202,19 +208,18 @@ async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 if __name__ == "__main__":
 
+    # limpiar webhook viejo para evitar conflicto
+    requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat))
     app.add_handler(MessageHandler(filters.VOICE, audio))
 
     print("BOT ONLINE")
 
     app.run_polling()
-  
-
-
 
 
    
