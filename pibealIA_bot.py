@@ -10,24 +10,24 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, MessageHandler, filters, ContextTypes
 
 
-# =========================
+# =====================
 # VARIABLES
-# =========================
+# =====================
 
-TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+TOKEN=os.getenv("TELEGRAM_TOKEN")
+WEBHOOK_URL=os.getenv("WEBHOOK_URL")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-NEWS_API_KEY = os.getenv("NEWS_API_KEY")
-REPLICATE_API_KEY = os.getenv("REPLICATE_API_KEY")
+GROQ_API_KEY=os.getenv("GROQ_API_KEY")
+NEWS_API_KEY=os.getenv("NEWS_API_KEY")
+REPLICATE_API_KEY=os.getenv("REPLICATE_API_KEY")
 
 
-# =========================
+# =====================
 # BASE DE DATOS
-# =========================
+# =====================
 
-conn = sqlite3.connect("memoria.db", check_same_thread=False)
-cursor = conn.cursor()
+conn=sqlite3.connect("memoria.db",check_same_thread=False)
+cursor=conn.cursor()
 
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS memoria(
@@ -39,269 +39,304 @@ mensaje TEXT
 conn.commit()
 
 
-# =========================
+# =====================
 # MEMORIA
-# =========================
+# =====================
 
-def guardar_memoria(user_id, texto):
+def guardar_memoria(user,texto):
 
     cursor.execute(
         "INSERT INTO memoria VALUES (?,?)",
-        (user_id, texto)
+        (user,texto)
     )
 
     conn.commit()
 
 
-def obtener_memoria(user_id):
+def obtener_memoria(user):
 
     cursor.execute(
-        "SELECT mensaje FROM memoria WHERE user_id=? ORDER BY rowid DESC LIMIT 6",
-        (user_id,)
+        "SELECT mensaje FROM memoria WHERE user_id=? ORDER BY rowid DESC LIMIT 8",
+        (user,)
     )
 
-    data = cursor.fetchall()
+    data=cursor.fetchall()
 
-    texto = ""
+    historial=""
 
     for m in data:
-        texto += m[0] + "\n"
+        historial+=m[0]+"\n"
 
-    return texto
+    return historial
 
 
-# =========================
+# =====================
 # IA
-# =========================
+# =====================
 
-def responder_ia(user_id, texto):
+def responder_ia(user,texto):
 
-    memoria = obtener_memoria(user_id)
+    memoria=obtener_memoria(user)
 
-    prompt = f"""
-Historial del usuario:
+    prompt=f"""
+Eres un asistente llamado Pibeal IA.
+Responde de forma clara.
+
+Historial:
 {memoria}
 
-Pregunta:
+Usuario:
 {texto}
 """
 
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url="https://api.groq.com/openai/v1/chat/completions"
 
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
+    headers={
+        "Authorization":f"Bearer {GROQ_API_KEY}",
+        "Content-Type":"application/json"
     }
 
-    data = {
-        "model": "llama3-70b-8192",
-        "messages": [
-            {"role": "user", "content": prompt}
+    data={
+        "model":"llama3-70b-8192",
+        "messages":[
+            {"role":"user","content":prompt}
         ]
     }
 
     try:
 
-        r = requests.post(url, headers=headers, json=data, timeout=30)
-        js = r.json()
+        r=requests.post(url,headers=headers,json=data,timeout=30)
+
+        js=r.json()
 
         if "choices" not in js:
-            return "⚠️ Error en IA"
+            return "Hubo un problema con la IA."
 
-        respuesta = js["choices"][0]["message"]["content"]
+        respuesta=js["choices"][0]["message"]["content"]
 
-        guardar_memoria(user_id, texto)
+        guardar_memoria(user,texto)
 
         return respuesta
 
     except:
 
-        return "⚠️ La IA no respondió."
+        return "La IA no respondió."
 
 
-# =========================
+# =====================
 # NOTICIAS
-# =========================
+# =====================
 
-def obtener_noticias(query):
+def noticias(q):
 
-    url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
+    url=f"https://newsapi.org/v2/everything?q={q}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
 
-    r = requests.get(url)
+    r=requests.get(url)
 
-    data = r.json()
+    data=r.json()
 
     if "articles" not in data:
-        return "⚠️ Error obteniendo noticias"
+        return "No pude obtener noticias."
 
-    texto = ""
+    texto=""
 
     for n in data["articles"][:5]:
 
-        titulo = n.get("title", "")
-        link = n.get("url", "")
-
-        texto += f"📰 {titulo}\n{link}\n\n"
+        texto+=f"📰 {n['title']}\n{n['url']}\n\n"
 
     return texto
 
 
-# =========================
-# GENERAR IMAGEN
-# =========================
+# =====================
+# CRYPTO
+# =====================
+
+def precio_crypto(moneda):
+
+    url=f"https://api.coingecko.com/api/v3/simple/price?ids={moneda}&vs_currencies=usd"
+
+    r=requests.get(url)
+
+    data=r.json()
+
+    if moneda not in data:
+        return None
+
+    precio=data[moneda]["usd"]
+
+    return f"{moneda.upper()} vale ${precio}"
+
+
+# =====================
+# IMAGEN
+# =====================
 
 def generar_imagen(prompt):
 
-    url = "https://api.replicate.com/v1/predictions"
+    url="https://api.replicate.com/v1/predictions"
 
-    headers = {
-        "Authorization": f"Token {REPLICATE_API_KEY}",
-        "Content-Type": "application/json"
+    headers={
+        "Authorization":f"Token {REPLICATE_API_KEY}",
+        "Content-Type":"application/json"
     }
 
-    data = {
-        "version": "stability-ai/sdxl",
-        "input": {
-            "prompt": prompt
-        }
+    data={
+        "version":"stability-ai/sdxl",
+        "input":{"prompt":prompt}
     }
 
     try:
 
-        requests.post(url, headers=headers, json=data)
+        requests.post(url,headers=headers,json=data)
 
-        return "🖼 Imagen generándose..."
+        return "🖼 Generando imagen..."
 
     except:
 
-        return "⚠️ Error generando imagen"
+        return "No pude generar la imagen."
 
 
-# =========================
-# ANALISIS CODIGO
-# =========================
+# =====================
+# DETECCION INTENCION
+# =====================
 
-def analizar_codigo(codigo):
+def detectar_intencion(texto):
 
-    prompt = f"""
-Analiza este código y explica errores o mejoras:
+    t=texto.lower()
 
-{codigo}
-"""
+    if "imagen" in t or "dibuja" in t:
+        return "imagen"
 
-    return responder_ia("analisis", prompt)
+    if "noticia" in t:
+        return "noticias"
+
+    if "precio" in t or "vale" in t or "bitcoin" in t:
+        return "crypto"
+
+    if "codigo" in t or "error" in t:
+        return "codigo"
+
+    return "chat"
 
 
-# =========================
+# =====================
 # TELEGRAM
-# =========================
+# =====================
 
-app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-
-async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    texto = update.message.text
-    user_id = str(update.message.from_user.id)
+bot=ApplicationBuilder().token(TOKEN).build()
 
 
-    if texto.startswith("/start"):
+async def chat(update:Update,context:ContextTypes.DEFAULT_TYPE):
 
-        msg = """
-🤖 BOT IA ULTRA
+    texto=update.message.text
+    user=str(update.message.from_user.id)
 
-Comandos:
 
-/noticias tema
-/imagen descripcion
-/codigo codigo
+    if texto.lower() in ["hola","hello","hi","buenas"]:
 
-También puedes hablar normalmente.
-"""
+        await update.message.reply_text(
+            "Soy Pibeal IA en que puedo ayudarte hoy"
+        )
 
-        await update.message.reply_text(msg)
         return
 
 
-    if texto.startswith("/noticias"):
+    tipo=detectar_intencion(texto)
 
-        q = texto.replace("/noticias", "").strip()
 
-        noticias = obtener_noticias(q)
+    if tipo=="imagen":
 
-        await update.message.reply_text(noticias)
+        res=generar_imagen(texto)
+
+        await update.message.reply_text(res)
+
         return
 
 
-    if texto.startswith("/imagen"):
+    if tipo=="noticias":
 
-        prompt = texto.replace("/imagen", "")
+        res=noticias(texto)
 
-        msg = generar_imagen(prompt)
+        await update.message.reply_text(res)
 
-        await update.message.reply_text(msg)
         return
 
 
-    if texto.startswith("/codigo"):
+    if tipo=="crypto":
 
-        codigo = texto.replace("/codigo", "")
+        for coin in ["bitcoin","ethereum","solana"]:
 
-        analisis = analizar_codigo(codigo)
+            if coin in texto.lower():
+
+                res=precio_crypto(coin)
+
+                if res:
+                    await update.message.reply_text(res)
+                    return
+
+
+    if tipo=="codigo":
+
+        analisis=responder_ia(user,"Analiza este código:\n"+texto)
 
         await update.message.reply_text(analisis)
+
         return
 
 
-    respuesta = responder_ia(user_id, texto)
+    respuesta=responder_ia(user,texto)
 
     await update.message.reply_text(respuesta)
 
 
-app.add_handler(MessageHandler(filters.TEXT, chat))
+bot.add_handler(MessageHandler(filters.TEXT,chat))
 
 
-# =========================
+# =====================
 # FASTAPI
-# =========================
+# =====================
 
 @asynccontextmanager
-async def lifespan(api: FastAPI):
+async def lifespan(api:FastAPI):
 
-    await app.initialize()
-    await app.start()
+    await bot.initialize()
+    await bot.start()
 
-    await app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
+    await bot.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
 
     yield
 
 
-api = FastAPI(lifespan=lifespan)
+api=FastAPI(lifespan=lifespan)
 
 
 @api.post("/webhook")
-async def webhook(req: Request):
+async def webhook(req:Request):
 
-    data = await req.json()
+    data=await req.json()
 
-    update = Update.de_json(data, app.bot)
+    update=Update.de_json(data,bot.bot)
 
-    await app.process_update(update)
+    await bot.process_update(update)
 
-    return {"ok": True}
+    return {"ok":True}
 
 
-# =========================
+# =====================
 # SERVER
-# =========================
+# =====================
 
-if __name__ == "__main__":
+if __name__=="__main__":
 
     uvicorn.run(
         api,
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8080))
+        port=int(os.environ.get("PORT",8080))
     )
+
+
+   
+
 
 
 
