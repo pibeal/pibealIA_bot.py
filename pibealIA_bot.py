@@ -12,19 +12,23 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-7b")  # Modelo configurable
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
-    raise ValueError("⚠️ Asegúrate de tener TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL definidos.")
+    raise ValueError("⚠️ Asegúrate de definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
 
 # =========================
-# IA GROQ
+# FUNCIÓN IA GROQ
 # =========================
 
 def preguntar_ia(pregunta: str) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
     data = {
-        "model": "llama-3.1-70b-versatile",
+        "model": GROQ_MODEL,
         "messages": [
             {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología y conversación."},
             {"role": "user", "content": pregunta}
@@ -35,26 +39,32 @@ def preguntar_ia(pregunta: str) -> str:
         r.raise_for_status()
         js = r.json()
         return js["choices"][0]["message"]["content"]
+    except requests.exceptions.HTTPError as e:
+        print("ERROR IA:", e, r.text)
+        return "⚠️ La IA tuvo un problema con la solicitud a Groq."
     except Exception as e:
         print("ERROR IA:", e)
         return "⚠️ La IA tuvo un problema temporal."
 
 # =========================
-# MENSAJE TELEGRAM
+# HANDLER TELEGRAM
 # =========================
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
+
     texto = update.message.text.lower()
+
     if texto in ["hola", "buenas", "hey", "inicio", "start"]:
         await update.message.reply_text("👋 Hola, soy **Pibeal IA** 🤖\n\n¿En qué puedo ayudarte hoy?")
         return
+
     respuesta = preguntar_ia(texto)
     await update.message.reply_text(respuesta)
 
 # =========================
-# BOT
+# BOT TELEGRAM
 # =========================
 
 bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -83,8 +93,6 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-   
-
 
 
 
