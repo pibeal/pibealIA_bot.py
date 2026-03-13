@@ -51,46 +51,38 @@ api = FastAPI()
 # IA GROQ
 # =========================
 
-def responder_ia(user_id, texto):
+def responder_ia(user_id,texto):
 
-    cursor.execute(
-        "SELECT mensaje FROM memoria WHERE user_id=? ORDER BY rowid DESC LIMIT 6",
-        (user_id,)
-    )
+    url="https://api.groq.com/openai/v1/chat/completions"
 
-    historial = cursor.fetchall()
-
-    messages = []
-
-    for h in historial[::-1]:
-        messages.append({"role":"user","content":h[0]})
-
-    messages.append({"role":"user","content":texto})
-
-    url = "https://api.groq.com/openai/v1/chat/completions"
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
+    headers={
+        "Authorization":f"Bearer {GROQ_API_KEY}",
+        "Content-Type":"application/json"
     }
 
-    data = {
+    data={
         "model":"llama3-70b-8192",
-        "messages":messages
+        "messages":[
+            {"role":"user","content":texto}
+        ]
     }
 
-    r = requests.post(url, headers=headers, json=data)
+    try:
 
-    respuesta = r.json()["choices"][0]["message"]["content"]
+        r=requests.post(url,headers=headers,json=data,timeout=30)
 
-    cursor.execute(
-        "INSERT INTO memoria VALUES (?,?)",
-        (user_id, texto)
-    )
+        respuesta=r.json()
 
-    conn.commit()
+        if "choices" not in respuesta:
+            return "⚠️ Error en la IA. Revisa la API de Groq."
 
-    return respuesta
+        return respuesta["choices"][0]["message"]["content"]
+
+    except Exception as e:
+
+        return "⚠️ La IA no respondió."
+
+
 
 # =========================
 # NOTICIAS
@@ -98,17 +90,23 @@ def responder_ia(user_id, texto):
 
 def obtener_noticias(query):
 
-    url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
+    url=f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
 
-    r = requests.get(url)
+    r=requests.get(url)
 
-    data = r.json()
+    data=r.json()
+
+    if "articles" not in data:
+        return "⚠️ No pude obtener noticias. Revisa tu API de NewsAPI."
 
     texto=""
 
     for n in data["articles"][:5]:
 
-        texto += f"📰 {n['title']}\n{n['url']}\n\n"
+        titulo=n.get("title","sin titulo")
+        link=n.get("url","")
+
+        texto+=f"📰 {titulo}\n{link}\n\n"
 
     return texto
 
