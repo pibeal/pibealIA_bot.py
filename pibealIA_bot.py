@@ -183,8 +183,26 @@ async def webhook(req: Request):
     await bot_app.process_update(update)
     return {"ok": True}
 
+if __name__ == "__main__":
+    print("🔹 Probando generación de imagen y GIF con Groq...")
 
+    prompt_test = "Un gato estilo cómic con capa de superhéroe"
 
+    # Test imagen
+    url_img = generar_imagen(prompt_test)
+    if url_img:
+        print("✅ Imagen generada correctamente:", url_img)
+    else:
+        print("❌ No se pudo generar la imagen.")
+
+    # Test GIF
+    gif_bytes = generar_gif(prompt_test, frames=3)
+    if gif_bytes:
+        with open("test_animacion.gif", "wb") as f:
+            f.write(gif_bytes.getbuffer())
+        print("✅ GIF generado correctamente: test_animacion.gif")
+    else:
+        print("❌ No se pudo generar el GIF.")
 
    
 
