@@ -1,6 +1,5 @@
 import os
 import requests
-from groq import Groq
 
 from telegram import Update
 from telegram.ext import (
@@ -20,22 +19,47 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
-client = Groq(api_key=GROQ_API_KEY)
+# memoria de conversaciones
+memoria = {}
 
 # =========================
-# IA
+# IA GROQ
 # =========================
 
-def responder_ia(mensaje):
+def responder_ia(user_id, mensaje):
 
-    chat = client.chat.completions.create(
-        model="llama3-70b-8192",
-        messages=[
-            {"role": "user", "content": mensaje}
-        ]
-    )
+    url = "https://api.groq.com/openai/v1/chat/completions"
 
-    return chat.choices[0].message.content
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    if user_id not in memoria:
+        memoria[user_id] = []
+
+    memoria[user_id].append({"role": "user", "content": mensaje})
+
+    data = {
+        "model": "llama3-70b-8192",
+        "messages": memoria[user_id][-6:]  # guarda contexto
+    }
+
+    try:
+
+        r = requests.post(url, headers=headers, json=data, timeout=30)
+
+        respuesta = r.json()
+
+        texto = respuesta["choices"][0]["message"]["content"]
+
+        memoria[user_id].append({"role": "assistant", "content": texto})
+
+        return texto
+
+    except Exception as e:
+
+        return "⚠️ La IA está ocupada, intenta nuevamente."
 
 
 # =========================
@@ -50,19 +74,17 @@ def obtener_noticias(query=""):
         url = f"https://newsapi.org/v2/everything?q={query}&language=es&pageSize=5&apiKey={NEWS_API_KEY}"
 
     r = requests.get(url)
+
     data = r.json()
+
+    if "articles" not in data:
+        return "No pude obtener noticias."
 
     noticias = ""
 
-    if "articles" not in data:
-        return "No pude obtener noticias ahora."
-
     for n in data["articles"][:5]:
 
-        titulo = n["title"]
-        link = n["url"]
-
-        noticias += f"📰 {titulo}\n{link}\n\n"
+        noticias += f"📰 {n['title']}\n{n['url']}\n\n"
 
     return noticias
 
@@ -76,16 +98,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = """
 🤖 BOT IA ACTIVO
 
-Puedes preguntarme lo que quieras.
+Puedes preguntarme cualquier cosa.
 
 Ejemplos:
 
-noticias tecnologia  
-noticias crypto  
-genera imagen de robot futurista  
-explicame python  
+noticias tecnologia
+noticias crypto
+genera imagen robot futurista
+explicame python
 
-También puedes mandar 🎤 audio.
+También puedes enviar 🎤 audio.
 """
 
     await update.message.reply_text(texto)
@@ -95,7 +117,7 @@ También puedes mandar 🎤 audio.
 # IMAGEN
 # =========================
 
-async def imagen(update: Update, prompt):
+async def generar_imagen(update, prompt):
 
     url = f"https://image.pollinations.ai/prompt/{prompt}"
 
@@ -132,7 +154,7 @@ async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     texto = r.json()["text"]
 
-    respuesta = responder_ia(texto)
+    respuesta = responder_ia(update.message.from_user.id, texto)
 
     await update.message.reply_text(respuesta)
 
@@ -143,32 +165,33 @@ async def audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def chat(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
+    user_id = update.message.from_user.id
     mensaje = update.message.text.lower()
 
     # NOTICIAS
     if "noticia" in mensaje or "news" in mensaje:
 
-        palabras = mensaje.replace("noticias", "").replace("noticia", "").replace("news", "").strip()
+        tema = mensaje.replace("noticias", "").replace("noticia", "").replace("news", "").strip()
 
-        noticias = obtener_noticias(palabras)
+        noticias = obtener_noticias(tema)
 
         await update.message.reply_text(noticias)
 
         return
 
     # IMAGEN
-    if "imagen" in mensaje or "genera imagen" in mensaje:
+    if "imagen" in mensaje:
 
-        prompt = mensaje.replace("imagen", "").replace("genera imagen", "").strip()
+        prompt = mensaje.replace("imagen", "").replace("genera", "").strip()
 
-        await imagen(update, prompt)
+        await generar_imagen(update, prompt)
 
         return
 
-    # IA NORMAL
+    # IA
     await update.message.reply_text("🤖 pensando...")
 
-    respuesta = responder_ia(mensaje)
+    respuesta = responder_ia(user_id, mensaje)
 
     await update.message.reply_text(respuesta)
 
@@ -189,11 +212,13 @@ if __name__ == "__main__":
     print("BOT ONLINE")
 
     app.run_polling()
+  
 
 
 
 
    
+
 
 
 
