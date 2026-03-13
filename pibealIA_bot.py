@@ -103,20 +103,24 @@ Usuario:
         ]
     }
 
-    try:
-r = requests.post(url, headers=headers, json=data, timeout=30)
+ try:
 
-js = r.json()
+    r = requests.post(url, headers=headers, json=data, timeout=30)
 
-if "choices" not in js:
-    return f"Error IA:\n{js}"
+    js = r.json()
 
-respuesta = js["choices"][0]["message"]["content"]
+    if "choices" not in js:
+        return f"Error IA:\n{js}"
 
-guardar_memoria(user, texto)
+    respuesta = js["choices"][0]["message"]["content"]
 
-return respuesta
+    guardar_memoria(user, texto)
 
+    return respuesta
+
+except Exception as e:
+
+    return f"Error IA:\n{e}"
 
 # =====================
 # NOTICIAS
