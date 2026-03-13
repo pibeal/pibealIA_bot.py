@@ -1,5 +1,6 @@
 import os
 import requests
+import time
 
 from telegram import Update
 from telegram.ext import (
@@ -210,6 +211,8 @@ if __name__ == "__main__":
 
     requests.get(f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/deleteWebhook")
 
+    time.sleep(5)
+
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
@@ -218,7 +221,10 @@ if __name__ == "__main__":
 
     print("BOT ONLINE")
 
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
 
 
    
