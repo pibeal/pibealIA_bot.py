@@ -13,30 +13,38 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Lista de modelos disponibles que probará automáticamente
-GROQ_MODELS = os.getenv(
-    "GROQ_MODELS",
+# Modelos disponibles para fallback
+GROQ_MODELS_TEXT = os.getenv(
+    "GROQ_MODELS_TEXT",
     "llama-3.3-70b-versatile,llama-3.1-70b-versatile,llama3-8b-8192,llama3-70b8192"
+).split(",")
+
+GROQ_MODELS_IMAGE = os.getenv(
+    "GROQ_MODELS_IMAGE",
+    "llama-3.3-70b-versatile,llama-3.1-70b-versatile"
+).split(",")
+
+GROQ_MODELS_GIF = os.getenv(
+    "GROQ_MODELS_GIF",
+    "llama-3.3-70b-versatile,llama-3.1-70b-versatile"
 ).split(",")
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
     raise ValueError("⚠️ Debes definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
 
 # =========================
-# FUNCIÓN IA GROQ CON FALLBACK
+# FUNCIÓN PARA TEXTO
 # =========================
 
 def preguntar_ia(pregunta: str) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    for modelo in GROQ_MODELS:
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    
+    for modelo in GROQ_MODELS_TEXT:
         data = {
             "model": modelo,
             "messages": [
-                {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología y conversación."},
+                {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología, conversación y creatividad."},
                 {"role": "user", "content": pregunta}
             ]
         }
@@ -45,13 +53,60 @@ def preguntar_ia(pregunta: str) -> str:
             r.raise_for_status()
             js = r.json()
             return js["choices"][0]["message"]["content"]
-        except requests.exceptions.HTTPError as e:
-            print(f"ERROR IA con modelo {modelo}: {e} {r.text}")
-            continue  # prueba el siguiente modelo
         except Exception as e:
-            print(f"ERROR IA con modelo {modelo}: {e}")
+            print(f"ERROR IA texto con modelo {modelo}: {e}")
             continue
-    return "⚠️ La IA no pudo responder. Ningún modelo disponible funcionó."
+    return "⚠️ La IA no pudo responder. Ningún modelo de texto funcionó."
+
+# =========================
+# FUNCIÓN PARA GENERAR IMAGEN
+# =========================
+
+def generar_imagen(prompt: str) -> str:
+    url = "https://api.groq.com/openai/v1/images/generations"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+
+    for modelo in GROQ_MODELS_IMAGE:
+        data = {
+            "model": modelo,
+            "prompt": prompt,
+            "size": "1024x1024"
+        }
+        try:
+            r = requests.post(url, headers=headers, json=data, timeout=60)
+            r.raise_for_status()
+            js = r.json()
+            return js["data"][0]["url"]
+        except Exception as e:
+            print(f"ERROR IA imagen con modelo {modelo}: {e}")
+            continue
+    return None
+
+# =========================
+# FUNCIÓN PARA GENERAR GIF/LOGO
+# =========================
+
+def generar_gif(prompt: str) -> str:
+    url = "https://api.groq.com/openai/v1/images/generations"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+
+    for modelo in GROQ_MODELS_GIF:
+        data = {
+            "model": modelo,
+            "prompt": prompt,
+            "size": "512x512",
+            "n_frames": 10,  # si Groq soporta animación
+            "format": "gif"
+        }
+        try:
+            r = requests.post(url, headers=headers, json=data, timeout=90)
+            r.raise_for_status()
+            js = r.json()
+            return js["data"][0]["url"]
+        except Exception as e:
+            print(f"ERROR IA GIF con modelo {modelo}: {e}")
+            continue
+    return None
 
 # =========================
 # HANDLER TELEGRAM
@@ -61,13 +116,48 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    texto = update.message.text.lower()
+    texto = update.message.text.strip().lower()
 
+    # Saludos
     if texto in ["hola", "buenas", "hey", "inicio", "start"]:
-        await update.message.reply_text("👋 Hola, soy **Pibeal IA** 🤖\n\n¿En qué puedo ayudarte hoy?")
+        await update.message.reply_text(
+            "👋 Hola, soy **Pibeal IA** 🤖\n\n"
+            "Escríbeme algo o prueba los comandos:\n"
+            "/imagen <texto> → Genera imagen\n"
+            "/gif <texto> → Genera GIF/Logo animado"
+        )
         return
 
-    respuesta = preguntar_ia(texto)
+    # Comando de imagen
+    if texto.startswith("/imagen "):
+        prompt = update.message.text[len("/imagen "):].strip()
+        if not prompt:
+            await update.message.reply_text("Escribe un texto para generar la imagen: /imagen <texto>")
+            return
+        await update.message.reply_text("🎨 Generando imagen, espera unos segundos...")
+        url_imagen = generar_imagen(prompt)
+        if url_imagen:
+            await update.message.reply_photo(url_imagen)
+        else:
+            await update.message.reply_text("⚠️ No se pudo generar la imagen. Intenta otro prompt.")
+        return
+
+    # Comando GIF/logo
+    if texto.startswith("/gif "):
+        prompt = update.message.text[len("/gif "):].strip()
+        if not prompt:
+            await update.message.reply_text("Escribe un texto para generar el GIF/logo: /gif <texto>")
+            return
+        await update.message.reply_text("🎬 Generando GIF/logo animado, espera unos segundos...")
+        url_gif = generar_gif(prompt)
+        if url_gif:
+            await update.message.reply_animation(url_gif)
+        else:
+            await update.message.reply_text("⚠️ No se pudo generar el GIF. Intenta otro prompt.")
+        return
+
+    # Texto normal
+    respuesta = preguntar_ia(update.message.text)
     await update.message.reply_text(respuesta)
 
 # =========================
@@ -100,8 +190,6 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-
-
 
 
 
