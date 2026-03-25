@@ -8,28 +8,25 @@ from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # =========================
-# VARIABLES DE ENTORNO
+# VARIABLES
 # =========================
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-GROQ_MODELS_TEXT = os.getenv(
-    "GROQ_MODELS_TEXT",
-    "llama-3.3-70b-versatile,llama-3.1-70b-versatile,llama3-8b-8192,llama3-70b8192"
-).split(",")
-
-GROQ_MODELS_IMAGE = os.getenv(
-    "GROQ_MODELS_IMAGE",
-    "llama-3.3-70b-versatile,llama-3.1-70b-versatile"
-).split(",")
+# 🔥 MODELOS MEJORADOS
+GROQ_MODELS_TEXT = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "mixtral-8x7b-32768"
+]
 
 if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
-    raise ValueError("⚠️ Debes definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
+    raise ValueError("Faltan variables de entorno")
 
 # =========================
-# CONFIG MEMORIA
+# MEMORIA
 # =========================
 
 MAX_HISTORY = 20
@@ -49,7 +46,7 @@ def load_memory(user_id):
         return []
 
 # =========================
-# IA PRO (MEMORIA + RESUMEN)
+# IA PRO
 # =========================
 
 def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
@@ -65,7 +62,7 @@ Eres Pibeal IA PRO 🤖
 - Experto en programación, trading, criptomonedas y tecnología
 - Respondes claro, directo y estructurado
 - Das respuestas útiles y accionables
-- Usas formato con emojis cuando ayuda
+- Usas emojis cuando ayudan
 - Mantienes contexto de la conversación
 """
 
@@ -78,7 +75,8 @@ Eres Pibeal IA PRO 🤖
 
             r = requests.post(url, headers=headers, json={
                 "model": GROQ_MODELS_TEXT[0],
-                "messages": resumen_prompt
+                "messages": resumen_prompt,
+                "temperature": 0.3
             }, timeout=60)
 
             resumen = r.json()["choices"][0]["message"]["content"]
@@ -99,42 +97,31 @@ Eres Pibeal IA PRO 🤖
         try:
             r = requests.post(url, headers=headers, json={
                 "model": modelo,
-                "messages": messages
+                "messages": messages,
+                "temperature": 0.7,
+                "max_tokens": 800
             }, timeout=60)
 
             r.raise_for_status()
             return r.json()["choices"][0]["message"]["content"]
 
         except Exception as e:
-            print(f"ERROR IA: {e}")
+            print(f"ERROR IA con {modelo}: {e}")
             continue
 
     return "⚠️ Error en IA"
 
 # =========================
-# IMÁGENES
+# IMÁGENES (FIX REAL 🔥)
 # =========================
 
 def generar_imagen(prompt: str) -> str:
-    url = "https://api.groq.com/openai/v1/images/generations"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-
-    for modelo in GROQ_MODELS_IMAGE:
-        try:
-            r = requests.post(url, headers=headers, json={
-                "model": modelo,
-                "prompt": prompt,
-                "size": "1024x1024"
-            }, timeout=60)
-
-            r.raise_for_status()
-            return r.json()["data"][0]["url"]
-
-        except Exception as e:
-            print(f"ERROR IMAGEN: {e}")
-            continue
-
-    return None
+    try:
+        prompt_mejorado = f"high quality, detailed, realistic, 4k: {prompt}"
+        url = f"https://image.pollinations.ai/prompt/{prompt_mejorado.replace(' ', '%20')}"
+        return url
+    except:
+        return None
 
 # =========================
 # HANDLER
@@ -165,7 +152,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if img:
             await update.message.reply_photo(img)
         else:
-            await update.message.reply_text("⚠️ No se pudo generar la imagen")
+            await update.message.reply_text("⚠️ Error generando imagen")
         return
 
     # GUARDAR USER
@@ -223,5 +210,5 @@ async def webhook(req: Request):
     await bot_app.process_update(update)
     return {"ok": True}
 
-
-       
+  
+ 
