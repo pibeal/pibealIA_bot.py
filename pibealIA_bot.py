@@ -4,6 +4,7 @@ import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
+from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # =========================
@@ -31,7 +32,7 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
 # CONFIG MEMORIA
 # =========================
 
-MAX_HISTORY = 10
+MAX_HISTORY = 20
 
 def save_memory(user_id, history):
     try:
@@ -48,7 +49,7 @@ def load_memory(user_id):
         return []
 
 # =========================
-# FUNCIÓN IA CON MEMORIA
+# IA PRO (MEMORIA + RESUMEN)
 # =========================
 
 def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
@@ -59,36 +60,59 @@ def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
     }
 
     system_prompt = """
-Eres Pibeal IA 🤖
+Eres Pibeal IA PRO 🤖
 
-- Experto en programación, tecnología y finanzas
-- Respondes claro, directo y útil
+- Experto en programación, trading, criptomonedas y tecnología
+- Respondes claro, directo y estructurado
+- Das respuestas útiles y accionables
+- Usas formato con emojis cuando ayuda
 - Mantienes contexto de la conversación
-- Eres amigable pero profesional
 """
 
+    # 🔥 RESUMEN AUTOMÁTICO
+    if len(history) > 15:
+        try:
+            resumen_prompt = [
+                {"role": "system", "content": "Resume esta conversación en puntos clave claros y cortos"}
+            ] + history
+
+            r = requests.post(url, headers=headers, json={
+                "model": GROQ_MODELS_TEXT[0],
+                "messages": resumen_prompt
+            }, timeout=60)
+
+            resumen = r.json()["choices"][0]["message"]["content"]
+
+            history.clear()
+            history.append({
+                "role": "system",
+                "content": f"Resumen previo: {resumen}"
+            })
+        except:
+            pass
+
     messages = [{"role": "system", "content": system_prompt}]
-    messages += history[-MAX_HISTORY:]
+    messages += history
     messages.append({"role": "user", "content": pregunta})
 
     for modelo in GROQ_MODELS_TEXT:
-        data = {
-            "model": modelo,
-            "messages": messages
-        }
         try:
-            r = requests.post(url, headers=headers, json=data, timeout=60)
+            r = requests.post(url, headers=headers, json={
+                "model": modelo,
+                "messages": messages
+            }, timeout=60)
+
             r.raise_for_status()
-            js = r.json()
-            return js["choices"][0]["message"]["content"]
+            return r.json()["choices"][0]["message"]["content"]
+
         except Exception as e:
-            print(f"ERROR IA texto con modelo {modelo}: {e}")
+            print(f"ERROR IA: {e}")
             continue
 
-    return "⚠️ La IA no pudo responder."
+    return "⚠️ Error en IA"
 
 # =========================
-# FUNCIÓN IMAGEN
+# IMÁGENES
 # =========================
 
 def generar_imagen(prompt: str) -> str:
@@ -96,24 +120,24 @@ def generar_imagen(prompt: str) -> str:
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
 
     for modelo in GROQ_MODELS_IMAGE:
-        data = {
-            "model": modelo,
-            "prompt": prompt,
-            "size": "1024x1024"
-        }
         try:
-            r = requests.post(url, headers=headers, json=data, timeout=60)
+            r = requests.post(url, headers=headers, json={
+                "model": modelo,
+                "prompt": prompt,
+                "size": "1024x1024"
+            }, timeout=60)
+
             r.raise_for_status()
-            js = r.json()
-            return js["data"][0]["url"]
+            return r.json()["data"][0]["url"]
+
         except Exception as e:
-            print(f"ERROR IA imagen con modelo {modelo}: {e}")
+            print(f"ERROR IMAGEN: {e}")
             continue
 
     return None
 
 # =========================
-# HANDLER TELEGRAM
+# HANDLER
 # =========================
 
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -122,13 +146,12 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.message.from_user.id)
 
-    # Cargar memoria si no existe
     if "history" not in context.user_data:
         context.user_data["history"] = load_memory(user_id)
 
     texto = update.message.text.strip()
 
-    # SALUDO (MODIFICADO COMO PEDISTE)
+    # SALUDO
     if texto.lower() in ["hola", "buenas", "hey", "inicio", "start"]:
         await update.message.reply_text("👋 Soy Pibeal IA 🤖 ¿En qué puedo ayudarte?")
         return
@@ -137,15 +160,15 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if texto.lower().startswith("/imagen "):
         prompt = texto[len("/imagen "):].strip()
         await update.message.reply_text("🎨 Generando imagen...")
-        url_imagen = generar_imagen(prompt)
+        img = generar_imagen(prompt)
 
-        if url_imagen:
-            await update.message.reply_photo(url_imagen)
+        if img:
+            await update.message.reply_photo(img)
         else:
-            await update.message.reply_text("⚠️ No se pudo generar la imagen.")
+            await update.message.reply_text("⚠️ No se pudo generar la imagen")
         return
 
-    # GUARDAR MENSAJE USUARIO
+    # GUARDAR USER
     context.user_data["history"].append({
         "role": "user",
         "content": texto
@@ -154,23 +177,25 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # IA
     respuesta = preguntar_ia(user_id, texto, context.user_data["history"])
 
-    # GUARDAR RESPUESTA
+    # GUARDAR BOT
     context.user_data["history"].append({
         "role": "assistant",
         "content": respuesta
     })
 
-    # LIMITAR MEMORIA
-    if len(context.user_data["history"]) > 20:
-        context.user_data["history"] = context.user_data["history"][-20:]
+    # LIMITE
+    if len(context.user_data["history"]) > MAX_HISTORY:
+        context.user_data["history"] = context.user_data["history"][-MAX_HISTORY:]
 
-    # GUARDAR EN DISCO
     save_memory(user_id, context.user_data["history"])
 
-    await update.message.reply_text(respuesta)
+    # RESPUESTA PRO
+    respuesta_final = f"🤖 *Pibeal IA PRO*\n\n{respuesta}"
+
+    await update.message.reply_text(respuesta_final, parse_mode=ParseMode.MARKDOWN)
 
 # =========================
-# BOT TELEGRAM
+# BOT
 # =========================
 
 bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
@@ -184,7 +209,7 @@ bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 async def lifespan(app: FastAPI):
     await bot_app.initialize()
     await bot_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    print("✅ Webhook configurado en:", f"{WEBHOOK_URL}/webhook")
+    print("✅ Bot PRO corriendo...")
     yield
     await bot_app.shutdown()
     await bot_app.stop()
@@ -199,5 +224,4 @@ async def webhook(req: Request):
     return {"ok": True}
 
 
-   
-
+       
