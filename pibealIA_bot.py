@@ -1,5 +1,6 @@
 import os
 import requests
+import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
@@ -13,7 +14,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Modelos disponibles para fallback
 GROQ_MODELS_TEXT = os.getenv(
     "GROQ_MODELS_TEXT",
     "llama-3.3-70b-versatile,llama-3.1-70b-versatile,llama3-8b-8192,llama3-70b8192"
@@ -28,20 +28,53 @@ if not TELEGRAM_TOKEN or not GROQ_API_KEY or not WEBHOOK_URL:
     raise ValueError("⚠️ Debes definir TELEGRAM_TOKEN, GROQ_API_KEY y WEBHOOK_URL")
 
 # =========================
-# FUNCIÓN PARA TEXTO
+# CONFIG MEMORIA
 # =========================
 
-def preguntar_ia(pregunta: str) -> str:
+MAX_HISTORY = 10
+
+def save_memory(user_id, history):
+    try:
+        with open(f"memory_{user_id}.json", "w") as f:
+            json.dump(history, f)
+    except:
+        pass
+
+def load_memory(user_id):
+    try:
+        with open(f"memory_{user_id}.json", "r") as f:
+            return json.load(f)
+    except:
+        return []
+
+# =========================
+# FUNCIÓN IA CON MEMORIA
+# =========================
+
+def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    system_prompt = """
+Eres Pibeal IA 🤖
+
+- Experto en programación, tecnología y finanzas
+- Respondes claro, directo y útil
+- Mantienes contexto de la conversación
+- Eres amigable pero profesional
+"""
+
+    messages = [{"role": "system", "content": system_prompt}]
+    messages += history[-MAX_HISTORY:]
+    messages.append({"role": "user", "content": pregunta})
 
     for modelo in GROQ_MODELS_TEXT:
         data = {
             "model": modelo,
-            "messages": [
-                {"role": "system", "content": "Eres Pibeal IA, ayudas con programación, tecnología, conversación y creatividad."},
-                {"role": "user", "content": pregunta}
-            ]
+            "messages": messages
         }
         try:
             r = requests.post(url, headers=headers, json=data, timeout=60)
@@ -51,10 +84,11 @@ def preguntar_ia(pregunta: str) -> str:
         except Exception as e:
             print(f"ERROR IA texto con modelo {modelo}: {e}")
             continue
-    return "⚠️ La IA no pudo responder. Ningún modelo de texto funcionó."
+
+    return "⚠️ La IA no pudo responder."
 
 # =========================
-# FUNCIÓN PARA GENERAR IMAGEN
+# FUNCIÓN IMAGEN
 # =========================
 
 def generar_imagen(prompt: str) -> str:
@@ -75,6 +109,7 @@ def generar_imagen(prompt: str) -> str:
         except Exception as e:
             print(f"ERROR IA imagen con modelo {modelo}: {e}")
             continue
+
     return None
 
 # =========================
@@ -85,33 +120,53 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.text:
         return
 
-    texto = update.message.text.strip().lower()
+    user_id = str(update.message.from_user.id)
 
-    # Saludos
-    if texto in ["hola", "buenas", "hey", "inicio", "start"]:
-        await update.message.reply_text(
-            "👋 Hola, soy **Pibeal IA** 🤖\n\n"
-            "Escríbeme algo o prueba los comandos:\n"
-            "/imagen <texto> → Genera imagen"
-        )
+    # Cargar memoria si no existe
+    if "history" not in context.user_data:
+        context.user_data["history"] = load_memory(user_id)
+
+    texto = update.message.text.strip()
+
+    # SALUDO (MODIFICADO COMO PEDISTE)
+    if texto.lower() in ["hola", "buenas", "hey", "inicio", "start"]:
+        await update.message.reply_text("👋 Soy Pibeal IA 🤖 ¿En qué puedo ayudarte?")
         return
 
-    # Comando de imagen
-    if texto.startswith("/imagen "):
-        prompt = update.message.text[len("/imagen "):].strip()
-        if not prompt:
-            await update.message.reply_text("Escribe un texto para generar la imagen: /imagen <texto>")
-            return
-        await update.message.reply_text("🎨 Generando imagen, espera unos segundos...")
+    # IMAGEN
+    if texto.lower().startswith("/imagen "):
+        prompt = texto[len("/imagen "):].strip()
+        await update.message.reply_text("🎨 Generando imagen...")
         url_imagen = generar_imagen(prompt)
+
         if url_imagen:
             await update.message.reply_photo(url_imagen)
         else:
-            await update.message.reply_text("⚠️ No se pudo generar la imagen. Intenta otro prompt.")
+            await update.message.reply_text("⚠️ No se pudo generar la imagen.")
         return
 
-    # Texto normal
-    respuesta = preguntar_ia(update.message.text)
+    # GUARDAR MENSAJE USUARIO
+    context.user_data["history"].append({
+        "role": "user",
+        "content": texto
+    })
+
+    # IA
+    respuesta = preguntar_ia(user_id, texto, context.user_data["history"])
+
+    # GUARDAR RESPUESTA
+    context.user_data["history"].append({
+        "role": "assistant",
+        "content": respuesta
+    })
+
+    # LIMITAR MEMORIA
+    if len(context.user_data["history"]) > 20:
+        context.user_data["history"] = context.user_data["history"][-20:]
+
+    # GUARDAR EN DISCO
+    save_memory(user_id, context.user_data["history"])
+
     await update.message.reply_text(respuesta)
 
 # =========================
@@ -122,17 +177,15 @@ bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, responder))
 
 # =========================
-# FASTAPI CON LIFESPAN
+# FASTAPI
 # =========================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # STARTUP
     await bot_app.initialize()
     await bot_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     print("✅ Webhook configurado en:", f"{WEBHOOK_URL}/webhook")
     yield
-    # SHUTDOWN
     await bot_app.shutdown()
     await bot_app.stop()
 
@@ -144,6 +197,7 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
+
 
    
 
