@@ -2,7 +2,8 @@ fastapi==0.110.0
 uvicorn==0.29.0
 python-telegram-bot==20.7
 requests==2.31.0
-
+gTTS
+pydub
 
 
 
