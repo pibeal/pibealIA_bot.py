@@ -2,12 +2,12 @@ import os
 import requests
 import json
 import tempfile
+import re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-from gtts import gTTS
 
 # =========================
 # VARIABLES
@@ -15,6 +15,7 @@ from gtts import gTTS
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
 GROQ_MODELS_TEXT = [
@@ -56,29 +57,9 @@ def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
 
     system_prompt = """
 Eres Pibeal IA PRO 🤖
-
-- Experto en programación, trading, criptomonedas y tecnología
-- Respondes claro, directo y estructurado
-- Das respuestas útiles y accionables
+Experto en programación, trading, criptomonedas y tecnología.
+Respondes claro, útil y directo.
 """
-
-    # 🔥 RESUMEN AUTOMÁTICO
-    if len(history) > 15:
-        try:
-            resumen_prompt = [{"role": "system", "content": "Resume esta conversación en puntos clave"}] + history
-
-            r = requests.post(url, headers=headers, json={
-                "model": GROQ_MODELS_TEXT[0],
-                "messages": resumen_prompt,
-                "temperature": 0.3
-            }, timeout=60)
-
-            resumen = r.json()["choices"][0]["message"]["content"]
-
-            history.clear()
-            history.append({"role": "system", "content": f"Resumen previo: {resumen}"})
-        except:
-            pass
 
     messages = [{"role": "system", "content": system_prompt}]
     messages += history
@@ -91,15 +72,20 @@ Eres Pibeal IA PRO 🤖
                 "messages": messages,
                 "temperature": 0.7,
                 "max_tokens": 800
-            }, timeout=60)
+            }, timeout=30)
 
             r.raise_for_status()
-            return r.json()["choices"][0]["message"]["content"]
+            js = r.json()
+
+            if not js.get("choices"):
+                continue
+
+            return js["choices"][0]["message"]["content"]
 
         except:
             continue
 
-    return "⚠️ Error IA"
+    return "⚠️ Error en IA"
 
 # =========================
 # DOBLE IA
@@ -109,7 +95,7 @@ def mejorar_respuesta(user_id, respuesta_base):
     try:
         return preguntar_ia(
             user_id,
-            f"Mejora esta respuesta, hazla más clara, profesional y estructurada:\n\n{respuesta_base}",
+            f"Mejora esta respuesta y hazla más clara y profesional:\n\n{respuesta_base}",
             []
         )
     except:
@@ -123,23 +109,59 @@ def generar_imagen(prompt: str):
     try:
         prompt = f"high quality, detailed, 4k: {prompt}"
         url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
-        img_data = requests.get(url, timeout=60).content
-        return img_data
+        
+        r = requests.get(url, timeout=30)
+        if r.status_code == 200:
+            return r.content
+        return None
     except:
         return None
 
 # =========================
-# VOZ
+# VOZ (JARVIS 🔥)
 # =========================
 
 def texto_a_voz(texto: str):
     try:
-        tts = gTTS(texto, lang="es")
+        # limpiar texto
+        texto = re.sub(r"[*_`~]", "", texto)
+        texto = re.sub(r"[^\w\s,.!?áéíóúÁÉÍÓÚñÑ]", "", texto)
+        texto = re.sub(r"\s+", " ", texto).strip()
+
+        url = "https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL"
+
+        headers = {
+            "xi-api-key": ELEVENLABS_API_KEY,
+            "Content-Type": "application/json"
+        }
+
+        data = {
+            "text": texto,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.4,
+                "similarity_boost": 0.9
+            }
+        }
+
+        response = requests.post(url, json=data, headers=headers)
+
+        if response.status_code != 200:
+            print("Error ElevenLabs:", response.text)
+            return None
+
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-        tts.save(temp_file.name)
+        temp_file.write(response.content)
+
         return temp_file.name
-    except:
+
+    except Exception as e:
+        print("Error voz:", e)
         return None
+
+# =========================
+# AUDIO → TEXTO
+# =========================
 
 def voz_a_texto(file_path):
     try:
@@ -166,23 +188,20 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user_id = str(update.message.from_user.id)
 
-    if "history" not in context.user_data:
+    if not isinstance(context.user_data.get("history"), list):
         context.user_data["history"] = load_memory(user_id)
 
-    # =====================
     # 🎤 AUDIO
-    # =====================
     if update.message.voice:
-        file = await update.message.voice.get_file()
+        await update.message.chat.send_action(action="record_voice")
 
+        file = await update.message.voice.get_file()
         temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".ogg")
         await file.download_to_drive(temp_audio.name)
 
-        await update.message.reply_text("🎧 Escuchando...")
-
         texto_usuario = voz_a_texto(temp_audio.name)
 
-        if not texto_usuario:
+        if not texto_usuario or len(texto_usuario.strip()) < 2:
             await update.message.reply_text("⚠️ No entendí el audio")
             return
 
@@ -203,20 +222,18 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # =====================
     # TEXTO
-    # =====================
     if not update.message.text:
         return
 
     texto = update.message.text.strip()
 
-    # SALUDO
+    await update.message.chat.send_action(action="typing")
+
     if texto.lower() in ["hola", "buenas", "hey", "inicio", "start"]:
         await update.message.reply_text("👋 Soy Pibeal IA 🤖 ¿En qué puedo ayudarte?")
         return
 
-    # IMAGEN
     if texto.lower().startswith("/imagen "):
         prompt = texto[len("/imagen "):].strip()
         await update.message.reply_text("🎨 Generando imagen...")
@@ -230,7 +247,6 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         return
 
-    # GUARDAR USER
     context.user_data["history"].append({"role": "user", "content": texto})
 
     respuesta = preguntar_ia(user_id, texto, context.user_data["history"])
@@ -264,7 +280,7 @@ bot_app.add_handler(MessageHandler(filters.ALL, responder))
 async def lifespan(app: FastAPI):
     await bot_app.initialize()
     await bot_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
-    print("✅ Bot PRO+ con voz corriendo")
+    print("✅ Bot PRO+ con voz real corriendo")
     yield
     await bot_app.shutdown()
     await bot_app.stop()
@@ -277,5 +293,5 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-  
+
 
