@@ -12,7 +12,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-# Modelos específicos de Groq
 MODELO_TEXTO = "llama-3.3-70b-versatile"
 MODELO_VISION = "llama-3.2-11b-vision-preview"
 MAX_HISTORY = 10 
@@ -30,20 +29,23 @@ def init_db():
     conn.close()
 
 def save_to_db(user_id, role, content):
-    conn = sqlite3.connect("bot_pibeal.db")
-    cursor = conn.cursor()
-    # Guardamos solo texto en la DB para no saturarla
-    cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, str(content)))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("bot_pibeal.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, str(content)))
+        conn.commit()
+        conn.close()
+    except: pass
 
 def get_history(user_id):
-    conn = sqlite3.connect("bot_pibeal.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT role, content FROM mensajes WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, MAX_HISTORY))
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"role": r, "content": c} for r, c in reversed(rows)]
+    try:
+        conn = sqlite3.connect("bot_pibeal.db")
+        cursor = conn.cursor()
+        cursor.execute("SELECT role, content FROM mensajes WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, MAX_HISTORY))
+        rows = cursor.fetchall()
+        conn.close()
+        return [{"role": r, "content": c} for r, c in reversed(rows)]
+    except: return []
 
 def clear_history(user_id):
     conn = sqlite3.connect("bot_pibeal.db")
@@ -55,18 +57,18 @@ def clear_history(user_id):
 init_db()
 
 # =========================
-# LÓGICA DE IA (CORREGIDA ✅)
+# IA (CORRECCIÓN DEFINITIVA ✅)
 # =========================
 def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     
-    modelo = MODELO_VISION if image_url else MODELO_TEXTO
-    
-    # Estructura de contenido según el tipo de mensaje
+    # Decidir modelo y formato de contenido
     if image_url:
+        modelo = MODELO_VISION
         user_content =
     else:
+        modelo = MODELO_TEXTO
         user_content = pregunta
 
     messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro. Si es código, usa bloques markdown."}]
@@ -74,19 +76,14 @@ def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     messages.append({"role": "user", "content": user_content})
 
     try:
-        payload = {
-            "model": modelo,
-            "messages": messages,
-            "temperature": 0.5,
-            "max_tokens": 1024
-        }
+        payload = {"model": modelo, "messages": messages, "temperature": 0.5, "max_tokens": 1024}
         r = requests.post(url, headers=headers, json=payload, timeout=25)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"]
     except Exception as e:
-        print(f"Error IA: {e}")
+        print(f"Error: {e}")
     
-    return "⚠️ Hubo un error al procesar tu solicitud. Intenta con algo más corto o usa /reset."
+    return "⚠️ Error al conectar con la IA. Intenta de nuevo o usa /reset."
 
 # =========================
 # UTILIDADES
@@ -111,38 +108,31 @@ def texto_a_voz(texto: str):
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message: return
     user_id = str(update.message.from_user.id)
+    texto = update.message.text.strip() if update.message.text else ""
 
-    # 1. COMANDO RESET
-    if update.message.text and update.message.text.lower() in ["/reset", "/start", "reiniciar"]:
+    # Comando de limpieza
+    if texto.lower() in ["/reset", "/start", "reiniciar"]:
         clear_history(user_id)
-        await update.message.reply_text("🧹 Memoria borrada. ¡Dime qué necesitas!")
+        await update.message.reply_text("🧹 Memoria borrada para este chat.")
         return
 
-    # 2. PROCESAR IMAGEN (VISIÓN)
+    # Procesar Fotos
     if update.message.photo:
-        await update.message.reply_text("👀 Analizando imagen...")
-        photo_file = await update.message.photo[-1].get_file()
-        # Nota: Groq Visión necesita la URL accesible del archivo
-        res = preguntar_ia(user_id, "Analiza esta imagen.", photo_file.file_path)
-        save_to_db(user_id, "user", "[Imagen enviada]")
+        await update.message.reply_text("👀 Analizando la imagen...")
+        foto = await update.message.photo[-1].get_file()
+        res = preguntar_ia(user_id, "Analiza esta imagen.", foto.file_path)
         save_to_db(user_id, "assistant", res)
         await update.message.reply_text(res)
         return
 
-    # 3. PROCESAR TEXTO
-    if update.message.text:
-        texto = update.message.text.strip()
-        
+    # Procesar Texto
+    if texto:
         if texto.startswith("/imagen "):
-            prompt = texto.replace("/imagen ", "")
+            p = texto.replace("/imagen ", "")
             await update.message.reply_text("🎨 Generando...")
-            img = generar_imagen_art(prompt)
+            img = generar_imagen_art(p)
             if img: await update.message.reply_photo(img)
-            else: await update.message.reply_text("Error al generar imagen.")
-            return
-
-        if len(texto) > 10000:
-            await update.message.reply_text("⚠️ Texto muy largo.")
+            else: await update.message.reply_text("Error con la imagen.")
             return
 
         res = preguntar_ia(user_id, texto)
