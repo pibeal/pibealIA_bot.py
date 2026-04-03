@@ -57,33 +57,33 @@ def clear_history(user_id):
 init_db()
 
 # =========================
-# IA (CORRECCIÓN DEFINITIVA ✅)
+# IA (VERSIÓN ROBUSTA ✅)
 # =========================
 def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     
-    # Decidir modelo y formato de contenido
+    # Definimos el modelo y el contenido en una sola estructura limpia
+    modelo = MODELO_VISION if image_url else MODELO_TEXTO
+    
     if image_url:
-        modelo = MODELO_VISION
-        user_content =
+        u_content =
     else:
-        modelo = MODELO_TEXTO
-        user_content = pregunta
+        u_content = pregunta
 
-    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro. Si es código, usa bloques markdown."}]
-    messages += get_history(user_id)
-    messages.append({"role": "user", "content": user_content})
+    # Unimos sistema + historial + pregunta actual
+    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro."}]
+    messages.extend(get_history(user_id))
+    messages.append({"role": "user", "content": u_content})
 
     try:
         payload = {"model": modelo, "messages": messages, "temperature": 0.5, "max_tokens": 1024}
         r = requests.post(url, headers=headers, json=payload, timeout=25)
-        if r.status_code == 200:
-            return r.json()["choices"][0]["message"]["content"]
+        return r.json()["choices"][0]["message"]["content"] if r.status_code == 200 else "⚠️ Error API"
     except Exception as e:
         print(f"Error: {e}")
-    
-    return "⚠️ Error al conectar con la IA. Intenta de nuevo o usa /reset."
+        return "⚠️ Error de conexión."
+
 
 # =========================
 # UTILIDADES
