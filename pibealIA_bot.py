@@ -151,80 +151,47 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🧹 Memoria reiniciada.")
         return
 
-    # =========================
-    # AUDIO ENTRANTE
-    # =========================
-    if update.message.voice:
-        await update.message.reply_text("🎧 Escuchando...")
+  # =========================
+# AUDIO ENTRANTE
+# =========================
+if update.message.voice:
+    await update.message.reply_text("🎧 Escuchando...")
 
-        file = await update.message.voice.get_file()
+    file = await update.message.voice.get_file()
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
-            await file.download_to_drive(f.name)
-            audio_path = f.name
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
+        await file.download_to_drive(f.name)
+        audio_path = f.name
 
-        texto_audio = transcribir_audio(audio_path)
-        os.remove(audio_path)
+    texto_audio = transcribir_audio(audio_path)
+    os.remove(audio_path)
 
-        if not texto_audio:
-            await update.message.reply_text("❌ No entendí el audio.")
-            return
-
-        await update.message.reply_text(f"📝 {texto_audio}")
-
-        save_to_db(user_id, "user", texto_audio)
-
-        res = preguntar_ia(user_id, texto_audio)
-
-        save_to_db(user_id, "assistant", res)
-
-        await update.message.reply_text(res)
-
-        # RESPUESTA CON AUDIO
-        audio = texto_a_voz(res)
-        if audio:
-            try:
-                if os.path.exists(audio) and os.path.getsize(audio) > 0:
-                    with open(audio, "rb") as f:
-                        await update.message.reply_voice(voice=f)
-            except Exception as e:
-                print("Audio error:", e)
-            finally:
-                try:
-                    os.remove(audio)
-                except:
-                    pass
-
+    if not texto_audio:
+        await update.message.reply_text("❌ No entendí el audio.")
         return
 
-    # =========================
-    # TEXTO
-    # =========================
-    if update.message.text:
-        texto = update.message.text.strip()
+    save_to_db(user_id, "user", texto_audio)
 
-        save_to_db(user_id, "user", texto)
+    res = preguntar_ia(user_id, texto_audio)
 
-        res = preguntar_ia(user_id, texto)
+    save_to_db(user_id, "assistant", res)
 
-        save_to_db(user_id, "assistant", res)
-
-        await update.message.reply_text(res)
-
-        # AUDIO RESPUESTA
-        audio = texto_a_voz(res)
-        if audio:
+    # 🔥 SOLO AUDIO (SIN TEXTO)
+    audio = texto_a_voz(res)
+    if audio:
+        try:
+            if os.path.exists(audio) and os.path.getsize(audio) > 0:
+                with open(audio, "rb") as f:
+                    await update.message.reply_voice(voice=f)
+        except Exception as e:
+            print("Audio error:", e)
+        finally:
             try:
-                if os.path.exists(audio) and os.path.getsize(audio) > 0:
-                    with open(audio, "rb") as f:
-                        await update.message.reply_voice(voice=f)
-            except Exception as e:
-                print("Audio error:", e)
-            finally:
-                try:
-                    os.remove(audio)
-                except:
-                    pass
+                os.remove(audio)
+            except:
+                pass
+
+    return
 
 # =========================
 # FASTAPI
