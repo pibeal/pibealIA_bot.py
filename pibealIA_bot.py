@@ -1,4 +1,4 @@
-import os, requests, sqlite3, tempfile, re, base64
+import os, requests, sqlite3, tempfile, re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
@@ -151,47 +151,61 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("🧹 Memoria reiniciada.")
         return
 
-  # =========================
-# AUDIO ENTRANTE
-# =========================
-if update.message.voice:
-    await update.message.reply_text("🎧 Escuchando...")
+    # =========================
+    # AUDIO
+    # =========================
+    if update.message.voice:
+        await update.message.reply_text("🎧 Escuchando...")
 
-    file = await update.message.voice.get_file()
+        file = await update.message.voice.get_file()
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
-        await file.download_to_drive(f.name)
-        audio_path = f.name
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as f:
+            await file.download_to_drive(f.name)
+            audio_path = f.name
 
-    texto_audio = transcribir_audio(audio_path)
-    os.remove(audio_path)
+        texto_audio = transcribir_audio(audio_path)
+        os.remove(audio_path)
 
-    if not texto_audio:
-        await update.message.reply_text("❌ No entendí el audio.")
+        if not texto_audio:
+            await update.message.reply_text("❌ No entendí el audio.")
+            return
+
+        save_to_db(user_id, "user", texto_audio)
+
+        res = preguntar_ia(user_id, texto_audio)
+
+        save_to_db(user_id, "assistant", res)
+
+        # 🔥 SOLO AUDIO
+        audio = texto_a_voz(res)
+        if audio:
+            try:
+                if os.path.exists(audio) and os.path.getsize(audio) > 0:
+                    with open(audio, "rb") as f:
+                        await update.message.reply_voice(voice=f)
+            except Exception as e:
+                print("Audio error:", e)
+            finally:
+                try:
+                    os.remove(audio)
+                except:
+                    pass
+
         return
 
-    save_to_db(user_id, "user", texto_audio)
+    # =========================
+    # TEXTO
+    # =========================
+    if update.message.text:
+        texto = update.message.text.strip()
 
-    res = preguntar_ia(user_id, texto_audio)
+        save_to_db(user_id, "user", texto)
 
-    save_to_db(user_id, "assistant", res)
+        res = preguntar_ia(user_id, texto)
 
-    # 🔥 SOLO AUDIO (SIN TEXTO)
-    audio = texto_a_voz(res)
-    if audio:
-        try:
-            if os.path.exists(audio) and os.path.getsize(audio) > 0:
-                with open(audio, "rb") as f:
-                    await update.message.reply_voice(voice=f)
-        except Exception as e:
-            print("Audio error:", e)
-        finally:
-            try:
-                os.remove(audio)
-            except:
-                pass
+        save_to_db(user_id, "assistant", res)
 
-    return
+        await update.message.reply_text(res)
 
 # =========================
 # FASTAPI
