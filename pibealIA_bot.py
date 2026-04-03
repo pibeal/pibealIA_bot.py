@@ -35,7 +35,8 @@ def save_to_db(user_id, role, content):
         cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, str(content)))
         conn.commit()
         conn.close()
-    except: pass
+    except:
+        pass
 
 def get_history(user_id):
     try:
@@ -45,41 +46,48 @@ def get_history(user_id):
         rows = cursor.fetchall()
         conn.close()
         return [{"role": r, "content": c} for r, c in reversed(rows)]
-    except: return []
+    except:
+        return []
 
 def clear_history(user_id):
-    conn = sqlite3.connect("bot_pibeal.db")
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM mensajes WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect("bot_pibeal.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM mensajes WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+    except:
+        pass
 
 init_db()
 
 # =========================
-# IA (VERSIÓN ROBUSTA ✅)
+# LÓGICA DE IA (CORREGIDA ✅)
 # =========================
 def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    modelo = MODELO_VISION if image_url else MODELO_TEXTO
     
+    # Elegir modelo
     if image_url:
+        modelo = MODELO_VISION
         u_content =
     else:
+        modelo = MODELO_TEXTO
         u_content = pregunta
 
-    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro."}] + get_history(user_id) + [{"role": "user", "content": u_content}]
-    
+    messages = [{"role": "system", "content": "Eres Pibeal IA PRO, un asistente útil y experto en código."}]
+    messages += get_history(user_id)
+    messages.append({"role": "user", "content": u_content})
+
     try:
-        r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
-        return r.json()["choices"][0]["message"]["content"]
-    except Exception as e:
-        print(f"Error: {e}")
-        return "⚠️ Error de conexión. Usa /reset."
-
-
-
+        payload = {"model": modelo, "messages": messages, "temperature": 0.5}
+        r = requests.post(url, headers=headers, json=payload, timeout=25)
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"]
+    except:
+        pass
+    return "⚠️ Error de IA. Usa /reset para limpiar memoria."
 
 # =========================
 # UTILIDADES
@@ -106,22 +114,21 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.message.from_user.id)
     texto = update.message.text.strip() if update.message.text else ""
 
-    # Comando de limpieza
     if texto.lower() in ["/reset", "/start", "reiniciar"]:
         clear_history(user_id)
-        await update.message.reply_text("🧹 Memoria borrada para este chat.")
+        await update.message.reply_text("🧹 Memoria borrada. ¡Dime qué necesitas!")
         return
 
-    # Procesar Fotos
+    # Si mandan FOTO
     if update.message.photo:
-        await update.message.reply_text("👀 Analizando la imagen...")
+        await update.message.reply_text("👀 Analizando imagen...")
         foto = await update.message.photo[-1].get_file()
         res = preguntar_ia(user_id, "Analiza esta imagen.", foto.file_path)
         save_to_db(user_id, "assistant", res)
         await update.message.reply_text(res)
         return
 
-    # Procesar Texto
+    # Si mandan TEXTO
     if texto:
         if texto.startswith("/imagen "):
             p = texto.replace("/imagen ", "")
@@ -157,3 +164,6 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
+
+
+
