@@ -32,7 +32,8 @@ def init_db():
 def save_to_db(user_id, role, content):
     conn = sqlite3.connect("bot_pibeal.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
+    # Guardamos solo texto en la DB para no saturarla
+    cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, str(content)))
     conn.commit()
     conn.close()
 
@@ -54,34 +55,41 @@ def clear_history(user_id):
 init_db()
 
 # =========================
-# LÓGICA DE IA (TEXTO Y VISIÓN)
+# LÓGICA DE IA (CORREGIDA ✅)
 # =========================
 def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     
-    # Si hay imagen, usamos el modelo de Visión
     modelo = MODELO_VISION if image_url else MODELO_TEXTO
     
-    # Construir contenido del mensaje
-    content =
+    # Estructura de contenido según el tipo de mensaje
     if image_url:
-        content.append({"type": "image_url", "image_url": {"url": image_url}})
+        user_content =
+    else:
+        user_content = pregunta
 
-    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro y breve. Si es código, usa bloques markdown."}]
+    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro. Si es código, usa bloques markdown."}]
     messages += get_history(user_id)
-    messages.append({"role": "user", "content": content})
+    messages.append({"role": "user", "content": user_content})
 
     try:
-        r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
+        payload = {
+            "model": modelo,
+            "messages": messages,
+            "temperature": 0.5,
+            "max_tokens": 1024
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=25)
         if r.status_code == 200:
             return r.json()["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"Error IA: {e}")
-    return "⚠️ Hubo un error. Intenta con algo más corto o usa /reset."
+    
+    return "⚠️ Hubo un error al procesar tu solicitud. Intenta con algo más corto o usa /reset."
 
 # =========================
-# UTILIDADES (IMAGEN, VOZ, AUDIO)
+# UTILIDADES
 # =========================
 def generar_imagen_art(prompt: str):
     url = f"https://pollinations.ai{prompt.replace(' ', '%20')}"
@@ -114,9 +122,9 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         await update.message.reply_text("👀 Analizando imagen...")
         photo_file = await update.message.photo[-1].get_file()
-        # Nota: Groq Visión prefiere URLs directas o Base64. Aquí usamos la URL temporal de Telegram.
-        res = preguntar_ia(user_id, "Describe esta imagen o analiza el código que ves.", photo_file.file_path)
-        save_to_db(user_id, "user", "[Envió una imagen]")
+        # Nota: Groq Visión necesita la URL accesible del archivo
+        res = preguntar_ia(user_id, "Analiza esta imagen.", photo_file.file_path)
+        save_to_db(user_id, "user", "[Imagen enviada]")
         save_to_db(user_id, "assistant", res)
         await update.message.reply_text(res)
         return
@@ -125,18 +133,16 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text:
         texto = update.message.text.strip()
         
-        # Generación de imágenes (DALL-E style)
         if texto.startswith("/imagen "):
             prompt = texto.replace("/imagen ", "")
-            await update.message.reply_text("🎨 Pintando...")
+            await update.message.reply_text("🎨 Generando...")
             img = generar_imagen_art(prompt)
             if img: await update.message.reply_photo(img)
             else: await update.message.reply_text("Error al generar imagen.")
             return
 
-        # IA de Texto normal
         if len(texto) > 10000:
-            await update.message.reply_text("⚠️ Texto muy largo. Por favor, sé más breve.")
+            await update.message.reply_text("⚠️ Texto muy largo.")
             return
 
         res = preguntar_ia(user_id, texto)
@@ -165,5 +171,3 @@ async def webhook(req: Request):
     update = Update.de_json(data, bot_app.bot)
     await bot_app.process_update(update)
     return {"ok": True}
-
-    
