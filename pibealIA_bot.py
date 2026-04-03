@@ -1,8 +1,4 @@
-import os
-import requests
-import json
-import tempfile
-import re
+import os, requests, sqlite3, json, tempfile, re
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from telegram import Update
@@ -10,230 +6,149 @@ from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filte
 from gtts import gTTS
 
 # =========================
-# VARIABLES
+# CONFIGURACIÓN
 # =========================
-
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 
-GROQ_MODELS_TEXT = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "mixtral-8x7b-32768"
-]
-
-MAX_HISTORY = 20
+# Modelos específicos de Groq
+MODELO_TEXTO = "llama-3.3-70b-versatile"
+MODELO_VISION = "llama-3.2-11b-vision-preview"
+MAX_HISTORY = 10 
 
 # =========================
-# MEMORIA
+# BASE DE DATOS (SQLITE)
 # =========================
+def init_db():
+    conn = sqlite3.connect("bot_pibeal.db")
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS mensajes 
+                      (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                       user_id TEXT, role TEXT, content TEXT)''')
+    conn.commit()
+    conn.close()
 
-def save_memory(user_id, history):
+def save_to_db(user_id, role, content):
+    conn = sqlite3.connect("bot_pibeal.db")
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO mensajes (user_id, role, content) VALUES (?, ?, ?)", (user_id, role, content))
+    conn.commit()
+    conn.close()
+
+def get_history(user_id):
+    conn = sqlite3.connect("bot_pibeal.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT role, content FROM mensajes WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, MAX_HISTORY))
+    rows = cursor.fetchall()
+    conn.close()
+    return [{"role": r, "content": c} for r, c in reversed(rows)]
+
+def clear_history(user_id):
+    conn = sqlite3.connect("bot_pibeal.db")
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM mensajes WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+init_db()
+
+# =========================
+# LÓGICA DE IA (TEXTO Y VISIÓN)
+# =========================
+def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
+    url = "https://groq.com"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    
+    # Si hay imagen, usamos el modelo de Visión
+    modelo = MODELO_VISION if image_url else MODELO_TEXTO
+    
+    # Construir contenido del mensaje
+    content =
+    if image_url:
+        content.append({"type": "image_url", "image_url": {"url": image_url}})
+
+    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro y breve. Si es código, usa bloques markdown."}]
+    messages += get_history(user_id)
+    messages.append({"role": "user", "content": content})
+
     try:
-        with open(f"memory_{user_id}.json", "w") as f:
-            json.dump(history, f)
-    except:
-        pass
-
-def load_memory(user_id):
-    try:
-        with open(f"memory_{user_id}.json", "r") as f:
-            return json.load(f)
-    except:
-        return []
+        r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"Error IA: {e}")
+    return "⚠️ Hubo un error. Intenta con algo más corto o usa /reset."
 
 # =========================
-# IA
+# UTILIDADES (IMAGEN, VOZ, AUDIO)
 # =========================
-
-def preguntar_ia(user_id: str, pregunta: str, history: list) -> str:
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    messages = [{"role": "system", "content": "Eres Pibeal IA PRO, respondes claro y útil."}]
-    messages += history
-    messages.append({"role": "user", "content": pregunta})
-
-    for modelo in GROQ_MODELS_TEXT:
-        try:
-            r = requests.post(url, headers=headers, json={
-                "model": modelo,
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 800
-            }, timeout=30)
-
-            r.raise_for_status()
-            js = r.json()
-
-            if js.get("choices"):
-                return js["choices"][0]["message"]["content"]
-
-        except:
-            continue
-
-    return "Error en IA"
-
-# =========================
-# MEJORAR RESPUESTA
-# =========================
-
-def mejorar_respuesta(user_id, respuesta):
-    try:
-        return preguntar_ia(user_id, f"Mejora esta respuesta:\n{respuesta}", [])
-    except:
-        return respuesta
-
-# =========================
-# IMAGEN
-# =========================
-
-def generar_imagen(prompt: str):
-    try:
-        url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}"
-        r = requests.get(url, timeout=30)
-        return r.content if r.status_code == 200 else None
-    except:
-        return None
-
-# =========================
-# LIMPIAR TEXTO (CLAVE 🔥)
-# =========================
-
-def limpiar_texto_para_voz(texto: str) -> str:
-    texto = re.sub(r"[*_`~]", "", texto)
-    texto = re.sub(r"[^\w\s,.!?áéíóúÁÉÍÓÚñÑ]", "", texto)
-    texto = re.sub(r"\s+", " ", texto).strip()
-    texto = texto.replace(".", ". ")
-    return texto
-
-# =========================
-# VOZ
-# =========================
+def generar_imagen_art(prompt: str):
+    url = f"https://pollinations.ai{prompt.replace(' ', '%20')}"
+    r = requests.get(url, timeout=20)
+    return r.content if r.status_code == 200 else None
 
 def texto_a_voz(texto: str):
     try:
-        texto = limpiar_texto_para_voz(texto)
-
-        tts = gTTS(texto, lang="es")
+        texto_limpio = re.sub(r"[*_`~]", "", texto)[:400]
+        tts = gTTS(texto_limpio, lang="es")
         temp = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
         tts.save(temp.name)
-
         return temp.name
-    except:
-        return None
+    except: return None
 
 # =========================
-# AUDIO → TEXTO
+# HANDLER TELEGRAM
 # =========================
-
-def voz_a_texto(path):
-    try:
-        url = "https://api.groq.com/openai/v1/audio/transcriptions"
-        headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
-
-        with open(path, "rb") as f:
-            r = requests.post(url, headers=headers, files={
-                "file": f,
-                "model": (None, "whisper-large-v3")
-            })
-
-        return r.json().get("text")
-    except:
-        return None
-
-# =========================
-# HANDLER
-# =========================
-
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message:
-        return
-
+    if not update.message: return
     user_id = str(update.message.from_user.id)
 
-    if "history" not in context.user_data:
-        context.user_data["history"] = load_memory(user_id)
+    # 1. COMANDO RESET
+    if update.message.text and update.message.text.lower() in ["/reset", "/start", "reiniciar"]:
+        clear_history(user_id)
+        await update.message.reply_text("🧹 Memoria borrada. ¡Dime qué necesitas!")
+        return
 
-    # 🎤 AUDIO
-    if update.message.voice:
-        await update.message.reply_text("🎧 Escuchando...")
+    # 2. PROCESAR IMAGEN (VISIÓN)
+    if update.message.photo:
+        await update.message.reply_text("👀 Analizando imagen...")
+        photo_file = await update.message.photo[-1].get_file()
+        # Nota: Groq Visión prefiere URLs directas o Base64. Aquí usamos la URL temporal de Telegram.
+        res = preguntar_ia(user_id, "Describe esta imagen o analiza el código que ves.", photo_file.file_path)
+        save_to_db(user_id, "user", "[Envió una imagen]")
+        save_to_db(user_id, "assistant", res)
+        await update.message.reply_text(res)
+        return
 
-        file = await update.message.voice.get_file()
-        temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".ogg")
-        await file.download_to_drive(temp_audio.name)
-
-        texto_usuario = voz_a_texto(temp_audio.name)
-
-        if not texto_usuario or len(texto_usuario.strip()) < 2:
-            await update.message.reply_text("No entendí el audio")
+    # 3. PROCESAR TEXTO
+    if update.message.text:
+        texto = update.message.text.strip()
+        
+        # Generación de imágenes (DALL-E style)
+        if texto.startswith("/imagen "):
+            prompt = texto.replace("/imagen ", "")
+            await update.message.reply_text("🎨 Pintando...")
+            img = generar_imagen_art(prompt)
+            if img: await update.message.reply_photo(img)
+            else: await update.message.reply_text("Error al generar imagen.")
             return
 
-        context.user_data["history"].append({"role": "user", "content": texto_usuario})
+        # IA de Texto normal
+        if len(texto) > 10000:
+            await update.message.reply_text("⚠️ Texto muy largo. Por favor, sé más breve.")
+            return
 
-        respuesta = preguntar_ia(user_id, texto_usuario, context.user_data["history"])
-
-        if len(texto_usuario) > 20:
-            respuesta = mejorar_respuesta(user_id, respuesta)
-
-        audio = texto_a_voz(respuesta)
-
-        if audio:
-            with open(audio, "rb") as a:
-                await update.message.reply_voice(a)
-        else:
-            await update.message.reply_text(respuesta)
-
-        return
-
-    # TEXTO
-    if not update.message.text:
-        return
-
-    texto = update.message.text.strip()
-
-    if texto.lower() in ["hola", "buenas", "start"]:
-        await update.message.reply_text("Soy Pibeal IA ¿En qué puedo ayudarte?")
-        return
-
-    if texto.startswith("/imagen "):
-        prompt = texto.replace("/imagen ", "")
-        await update.message.reply_text("Generando imagen...")
-
-        img = generar_imagen(prompt)
-        if img:
-            await update.message.reply_photo(img)
-        else:
-            await update.message.reply_text("Error generando imagen")
-        return
-
-    context.user_data["history"].append({"role": "user", "content": texto})
-
-    respuesta = preguntar_ia(user_id, texto, context.user_data["history"])
-
-    if len(texto) > 20:
-        respuesta = mejorar_respuesta(user_id, respuesta)
-
-    context.user_data["history"].append({"role": "assistant", "content": respuesta})
-
-    save_memory(user_id, context.user_data["history"])
-
-    await update.message.reply_text(respuesta)
+        res = preguntar_ia(user_id, texto)
+        save_to_db(user_id, "user", texto)
+        save_to_db(user_id, "assistant", res)
+        await update.message.reply_text(res)
 
 # =========================
-# BOT
+# SERVIDOR FASTAPI
 # =========================
-
 bot_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 bot_app.add_handler(MessageHandler(filters.ALL, responder))
-
-# =========================
-# FASTAPI
-# =========================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -241,7 +156,6 @@ async def lifespan(app: FastAPI):
     await bot_app.bot.set_webhook(f"{WEBHOOK_URL}/webhook")
     yield
     await bot_app.shutdown()
-    await bot_app.stop()
 
 app = FastAPI(lifespan=lifespan)
 
@@ -252,4 +166,4 @@ async def webhook(req: Request):
     await bot_app.process_update(update)
     return {"ok": True}
 
-   
+    
