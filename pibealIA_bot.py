@@ -63,14 +63,21 @@ def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     modelo = MODELO_VISION if image_url else MODELO_TEXTO
-    u_content = if image_url else pregunta
+    
+    if image_url:
+        u_content =
+    else:
+        u_content = pregunta
+
     messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro."}] + get_history(user_id) + [{"role": "user", "content": u_content}]
+    
     try:
-            r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
-            return r.json()["choices"][0]["message"]["content"]
-            except Exception as e:
-            print(f"Error: {e}")
-            return "⚠️ Error de conexión. Usa /reset."
+        r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
+        return r.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"Error: {e}")
+        return "⚠️ Error de conexión. Usa /reset."
+
 
 
 
