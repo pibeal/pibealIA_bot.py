@@ -62,27 +62,16 @@ init_db()
 def preguntar_ia(user_id: str, pregunta: str, image_url: str = None) -> str:
     url = "https://groq.com"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    
-    # Definimos el modelo y el contenido en una sola estructura limpia
     modelo = MODELO_VISION if image_url else MODELO_TEXTO
-    
-    if image_url:
-        u_content =
-    else:
-        u_content = pregunta
-
-    # Unimos sistema + historial + pregunta actual
-    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro."}]
-    messages.extend(get_history(user_id))
-    messages.append({"role": "user", "content": u_content})
-
+    u_content = if image_url else pregunta
+    messages = [{"role": "system", "content": "Eres Pibeal IA PRO. Responde claro."}] + get_history(user_id) + [{"role": "user", "content": u_content}]
     try:
-        payload = {"model": modelo, "messages": messages, "temperature": 0.5, "max_tokens": 1024}
-        r = requests.post(url, headers=headers, json=payload, timeout=25)
-        return r.json()["choices"][0]["message"]["content"] if r.status_code == 200 else "⚠️ Error API"
-    except Exception as e:
-        print(f"Error: {e}")
-        return "⚠️ Error de conexión."
+            r = requests.post(url, headers=headers, json={"model": modelo, "messages": messages, "temperature": 0.5}, timeout=25)
+            return r.json()["choices"][0]["message"]["content"]
+            except Exception as e:
+            print(f"Error: {e}")
+            return "⚠️ Error de conexión. Usa /reset."
+
 
 
 # =========================
